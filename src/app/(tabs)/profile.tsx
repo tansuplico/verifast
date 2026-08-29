@@ -1,12 +1,15 @@
 import { Link } from "expo-router";
-import { StyleSheet } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { BottomTabInset, MaxContentWidth, Spacing } from "@/constants/theme";
+import { useAuth } from "@/providers/auth-provider";
 
 export default function ProfileScreen() {
+  const { signOut } = useAuth();
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
@@ -33,11 +36,13 @@ export default function ProfileScreen() {
           <ThemedText type="smallBold">Backup and recovery</ThemedText>
         </ThemedView>
 
-        <ThemedView type="backgroundElement" style={styles.section}>
-          <ThemedText type="smallBold" themeColor="textSecondary">
-            Log out
-          </ThemedText>
-        </ThemedView>
+        <Pressable onPress={signOut}>
+          <ThemedView type="backgroundElement" style={styles.section}>
+            <ThemedText type="smallBold" themeColor="textSecondary">
+              Log out
+            </ThemedText>
+          </ThemedView>
+        </Pressable>
       </SafeAreaView>
     </ThemedView>
   );

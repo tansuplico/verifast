@@ -1,6 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
-import { Link } from "expo-router";
+import { Link, Redirect } from "expo-router";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -13,7 +15,32 @@ const BULLETS = [
   "Placeholder bullet point three",
 ];
 
+const HAS_SEEN_ONBOARDING_KEY = "verifast:hasSeenOnboarding";
+
 export default function OnboardingScreen() {
+  const [status, setStatus] = useState<"checking" | "show" | "skip">(
+    "checking",
+  );
+
+  useEffect(() => {
+    AsyncStorage.getItem(HAS_SEEN_ONBOARDING_KEY).then((value) => {
+      if (value === "true") {
+        setStatus("skip");
+      } else {
+        AsyncStorage.setItem(HAS_SEEN_ONBOARDING_KEY, "true");
+        setStatus("show");
+      }
+    });
+  }, []);
+
+  if (status === "checking") {
+    return null;
+  }
+
+  if (status === "skip") {
+    return <Redirect href="/sign-in" />;
+  }
+
   return (
     <LinearGradient
       colors={["#0f766e", "#0d9488"]}

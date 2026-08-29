@@ -1,20 +1,43 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Link, router } from "expo-router";
+import { Link } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AuthTextField } from "@/components/auth-text-field";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
+import { useAuth } from "@/providers/auth-provider";
 
 export default function SignInScreen() {
+  const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleSignIn() {
-    // TODO: wire up Supabase Auth once the project exists
-    router.replace("/(tabs)");
+  async function handleSignIn() {
+    if (!email.trim() || !password) {
+      Alert.alert("Missing info", "Enter your email and password.");
+      return;
+    }
+    setIsSubmitting(true);
+    const { error } = await signIn(email.trim(), password);
+    setIsSubmitting(false);
+    if (error) {
+      Alert.alert("Sign in failed", error);
+      return;
+    }
+  }
+
+  function handleForgotPassword() {
+    // The Forgot Password screen hasn't been built yet (pending task).
+    Alert.alert("Coming soon", "Password reset isn't available yet.");
+  }
+
+  function handleGoogleSignIn() {
+    // Google OAuth isn't wired up yet (pending task) - this is still the
+    // placeholder Ionicons glyph, not Google's brand-guideline logo.
+    Alert.alert("Coming soon", "Google sign-in isn't set up yet.");
   }
 
   return (
@@ -56,17 +79,22 @@ export default function SignInScreen() {
           onChangeText={setPassword}
         />
 
-        <Link href="/(tabs)" asChild>
-          <Pressable style={styles.forgotPasswordRow}>
-            <ThemedText type="small" style={styles.forgotPasswordText}>
-              Forgot password?
-            </ThemedText>
-          </Pressable>
-        </Link>
+        <Pressable
+          style={styles.forgotPasswordRow}
+          onPress={handleForgotPassword}
+        >
+          <ThemedText type="small" style={styles.forgotPasswordText}>
+            Forgot password?
+          </ThemedText>
+        </Pressable>
 
-        <Pressable style={styles.primaryButton} onPress={handleSignIn}>
+        <Pressable
+          style={styles.primaryButton}
+          onPress={handleSignIn}
+          disabled={isSubmitting}
+        >
           <ThemedText type="smallBold" style={styles.primaryButtonText}>
-            Sign In
+            {isSubmitting ? "Signing in..." : "Sign In"}
           </ThemedText>
         </Pressable>
 
@@ -78,7 +106,7 @@ export default function SignInScreen() {
           <View style={styles.dividerLine} />
         </View>
 
-        <Pressable style={styles.googleButton} onPress={handleSignIn}>
+        <Pressable style={styles.googleButton} onPress={handleGoogleSignIn}>
           <Ionicons name="logo-google" size={18} color="#4285F4" />
           <ThemedText type="smallBold" style={styles.googleButtonText}>
             Continue with Google

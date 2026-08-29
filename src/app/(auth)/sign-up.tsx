@@ -1,22 +1,68 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Link, router } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AuthTextField } from "@/components/auth-text-field";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
+import { useAuth } from "@/providers/auth-provider";
 
 export default function SignUpScreen() {
+  const { signUp } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleCreateAccount() {
-    // TODO: wire up Supabase Auth once the project exists
-    router.replace("/(tabs)");
+  async function handleCreateAccount() {
+    if (!fullName.trim() || !email.trim() || !password) {
+      Alert.alert("Missing info", "Fill in all fields to continue.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert(
+        "Passwords don't match",
+        "Double check both password fields.",
+      );
+      return;
+    }
+    if (password.length < 6) {
+      Alert.alert("Password too short", "Use at least 6 characters.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    const { error, needsEmailConfirmation } = await signUp(
+      fullName.trim(),
+      email.trim(),
+      password,
+    );
+    setIsSubmitting(false);
+
+    if (error) {
+      Alert.alert("Sign up failed", error);
+      return;
+    }
+
+    if (needsEmailConfirmation) {
+      Alert.alert(
+        "Check your email",
+        "We've sent a confirmation link. Verify your email, then sign in.",
+        [{ text: "OK", onPress: () => router.replace("/sign-in") }],
+      );
+      return;
+    }
+    // If email confirmation is off, signUp returns an active session and
+    // the root layout's Stack.Protected guard switches to (tabs) itself.
+  }
+
+  function handleGoogleSignUp() {
+    // Google OAuth isn't wired up yet (pending task) - this is still the
+    // placeholder Ionicons glyph, not Google's brand-guideline logo.
+    Alert.alert("Coming soon", "Google sign-in isn't set up yet.");
   }
 
   return (
@@ -75,9 +121,13 @@ export default function SignUpScreen() {
           onChangeText={setConfirmPassword}
         />
 
-        <Pressable style={styles.primaryButton} onPress={handleCreateAccount}>
+        <Pressable
+          style={styles.primaryButton}
+          onPress={handleCreateAccount}
+          disabled={isSubmitting}
+        >
           <ThemedText type="smallBold" style={styles.primaryButtonText}>
-            Create Account
+            {isSubmitting ? "Creating account..." : "Create Account"}
           </ThemedText>
         </Pressable>
 
@@ -89,7 +139,7 @@ export default function SignUpScreen() {
           <View style={styles.dividerLine} />
         </View>
 
-        <Pressable style={styles.googleButton} onPress={handleCreateAccount}>
+        <Pressable style={styles.googleButton} onPress={handleGoogleSignUp}>
           <Ionicons name="logo-google" size={18} color="#4285F4" />
           <ThemedText type="smallBold" style={styles.googleButtonText}>
             Continue with Google

@@ -1,63 +1,41 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
+import {
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/providers/auth-provider";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// TODO: replace with real data once Supabase is wired up
-const USER_NAME = "User";
-const DOCUMENTS_STORED = 7;
+// The "folders" table is always exactly 4 fixed categories per user,
+// auto-seeded by the on_auth_user_created trigger (see the schema
+// migration) - so this is a fixed constant, not data that needs fetching.
 const FOLDERS_COUNT = 4;
 
-const RECENT_DOCUMENTS = [
-  {
-    id: "1",
-    title: "PSA Birth Certificate",
-    openedOn: "Aug 27",
-    icon: "document-text-outline",
-    color: "#10b1a3",
-  },
-  {
-    id: "2",
-    title: "Medical Certificate",
-    openedOn: "Aug 26",
-    icon: "medkit-outline",
-    color: "#FF0800",
-  },
-  {
-    id: "3",
-    title: "Payment Receipt",
-    openedOn: "Aug 25",
-    icon: "receipt-outline",
-    color: "#0BDA51",
-  },
-] as const;
+type RecentDocument = {
+  id: string;
+  title: string;
+  openedOn: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+};
 
-const DOCUMENT_ALERTS = [
-  {
-    id: "1",
-    date: "Sep 26",
-    text: "Medical Certificate expires in 30 days",
-    icon: "alert-circle-outline",
-    color: "#dc2626",
-  },
-  {
-    id: "2",
-    date: "Sep 3",
-    text: "Good Moral Certificate due for submission",
-    icon: "time-outline",
-    color: "#d97706",
-  },
-  {
-    id: "3",
-    date: "Sep 10",
-    text: "School ID Photo renewal recommended",
-    icon: "refresh-outline",
-    color: "#0891b2",
-  },
-] as const;
+type DocumentAlert = {
+  id: string;
+  date: string;
+  text: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+};
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -66,12 +44,127 @@ function getGreeting() {
   return "Good evening";
 }
 
+function formatShortDate(dateString: string) {
+  return new Date(dateString).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function iconForMimeType(
+  mimeType: string | null,
+): keyof typeof Ionicons.glyphMap {
+  if (!mimeType) return "document-outline";
+  if (mimeType.startsWith("image/")) return "image-outline";
+  if (mimeType === "application/pdf") return "document-text-outline";
+  return "document-outline";
+}
+
+const DOC_COLORS = ["#10b1a3", "#0BDA51", "#3b82f6", "#8b5cf6"];
+
+const REMINDER_TYPE_STYLE: Record<
+  string,
+  { icon: keyof typeof Ionicons.glyphMap; color: string }
+> = {
+  expiration: { icon: "alert-circle-outline", color: "#dc2626" },
+  submission: { icon: "time-outline", color: "#d97706" },
+  renewal: { icon: "refresh-outline", color: "#0891b2" },
+};
+
 export default function HomeScreen() {
+  const { session } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [fullName, setFullName] = useState<string | null>(null);
+  const [documentsCount, setDocumentsCount] = useState(0);
+  const [recentDocuments, setRecentDocuments] = useState<RecentDocument[]>([]);
+  const [documentAlerts, setDocumentAlerts] = useState<DocumentAlert[]>([]);
+
+  const loadHomeData = useCallback(
+    async (isRefresh = false) => {
+      if (!session) return;
+      isRefresh ? setIsRefreshing(true) : setIsLoading(true);
+
+      const [profileResult, countResult, recentResult, remindersResult] =
+        await Promise.all([
+          supabase
+            .from("profiles")
+            .select("full_name")
+            .eq("id", session.user.id)
+            .single(),
+          supabase
+            .from("documents")
+            .select("*", { count: "exact", head: true })
+            .eq("user_id", session.user.id),
+          supabase
+            .from("documents")
+            .select("id, name, mime_type, updated_at")
+            .eq("user_id", session.user.id)
+            .order("updated_at", { ascending: false })
+            .limit(3),
+          supabase
+            .from("reminders")
+            .select("id, title, type, due_date")
+            .eq("user_id", session.user.id)
+            .eq("status", "pending")
+            .order("due_date", { ascending: true })
+            .limit(3),
+        ]);
+
+      setFullName(profileResult.data?.full_name ?? null);
+      setDocumentsCount(countResult.count ?? 0);
+
+      setRecentDocuments(
+        (recentResult.data ?? []).map((doc, index) => ({
+          id: doc.id,
+          title: doc.name,
+          openedOn: formatShortDate(doc.updated_at),
+          icon: iconForMimeType(doc.mime_type),
+          color: DOC_COLORS[index % DOC_COLORS.length],
+        })),
+      );
+
+      setDocumentAlerts(
+        (remindersResult.data ?? []).map((reminder) => {
+          const style =
+            REMINDER_TYPE_STYLE[reminder.type] ??
+            REMINDER_TYPE_STYLE.submission;
+          return {
+            id: reminder.id,
+            date: formatShortDate(reminder.due_date),
+            text: reminder.title,
+            icon: style.icon,
+            color: style.color,
+          };
+        }),
+      );
+
+      isRefresh ? setIsRefreshing(false) : setIsLoading(false);
+    },
+    [session],
+  );
+
+  // Refetch every time Home regains focus, so adding a document or
+  // reminder elsewhere in the app shows up here without a manual pull.
+  useFocusEffect(
+    useCallback(() => {
+      loadHomeData();
+    }, [loadHomeData]),
+  );
+
+  const displayName = fullName || session?.user.email || "there";
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <ScrollView
         contentContainerStyle={{ paddingBottom: BottomTabInset + Spacing.four }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => loadHomeData(true)}
+          />
+        }
       >
         <LinearGradient colors={["#0f766e", "#0d9488"]} style={styles.header}>
           <View style={styles.headerTopRow}>
@@ -80,7 +173,7 @@ export default function HomeScreen() {
                 {getGreeting()}
               </ThemedText>
               <ThemedText type="title" style={styles.userName}>
-                {USER_NAME}
+                {displayName}
               </ThemedText>
             </View>
 
@@ -100,7 +193,7 @@ export default function HomeScreen() {
             </ThemedText>
             <View style={styles.storageRow}>
               <ThemedText type="title" style={styles.storageCount}>
-                {DOCUMENTS_STORED} files
+                {isLoading ? "..." : `${documentsCount} files`}
               </ThemedText>
               <ThemedText type="small" style={styles.storageSubtext}>
                 across {FOLDERS_COUNT} folders
@@ -122,7 +215,13 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            {RECENT_DOCUMENTS.map((doc) => (
+            {!isLoading && recentDocuments.length === 0 && (
+              <ThemedText type="small" style={styles.emptyText}>
+                No documents yet
+              </ThemedText>
+            )}
+
+            {recentDocuments.map((doc) => (
               <Pressable key={doc.id} style={styles.docRow}>
                 <View
                   style={[styles.docIconBadge, { backgroundColor: doc.color }]}
@@ -154,7 +253,13 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            {DOCUMENT_ALERTS.map((alert) => (
+            {!isLoading && documentAlerts.length === 0 && (
+              <ThemedText type="small" style={styles.emptyText}>
+                No alerts right now
+              </ThemedText>
+            )}
+
+            {documentAlerts.map((alert) => (
               <View key={alert.id} style={styles.alertRow}>
                 <View
                   style={[

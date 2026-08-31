@@ -274,9 +274,7 @@ export default function ProfileScreen() {
               </View>
             </Pressable>
 
-            <Pressable
-              onPress={() => showComingSoon("Security and privacy settings")}
-            >
+            <Pressable onPress={() => router.push("/security-privacy")}>
               <View style={styles.linkRow}>
                 <Ionicons
                   name="shield-checkmark-outline"

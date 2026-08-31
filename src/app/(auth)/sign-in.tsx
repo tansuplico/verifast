@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -11,6 +11,7 @@ import { useAuth } from "@/providers/auth-provider";
 
 export default function SignInScreen() {
   const { signIn } = useAuth();
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,8 +31,7 @@ export default function SignInScreen() {
   }
 
   function handleForgotPassword() {
-    // The Forgot Password screen hasn't been built yet (pending task).
-    Alert.alert("Coming soon", "Password reset isn't available yet.");
+    router.push("/forgot-password");
   }
 
   function handleGoogleSignIn() {

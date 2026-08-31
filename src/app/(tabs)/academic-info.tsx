@@ -57,6 +57,27 @@ function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
 
+const DUMMY_ACADEMIC_INFO: AcademicInfoRow[] = [
+  {
+    id: "dummy-1",
+    category: "announcement",
+    title: "Enrollment Period Extended",
+    content:
+      "The first semester enrollment period has been extended until September 10, 2026. Students with incomplete requirements may still proceed.",
+    is_pinned: false,
+    posted_at: new Date("2026-08-27").toISOString(),
+  },
+  {
+    id: "dummy-2",
+    category: "activity",
+    title: "University Orientation Week",
+    content:
+      "All first year students are required to attend the orientation program from September 1 to 5 at the Main Auditorium.",
+    is_pinned: false,
+    posted_at: new Date("2026-08-25").toISOString(),
+  },
+];
+
 export default function AcademicInfoScreen() {
   const { session } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
@@ -98,8 +119,9 @@ export default function AcademicInfoScreen() {
   );
 
   const filteredItems = useMemo(() => {
-    if (activeFilter === "all") return items;
-    return items.filter((item) => item.category === activeFilter);
+    const combined = [...items, ...DUMMY_ACADEMIC_INFO];
+    if (activeFilter === "all") return combined;
+    return combined.filter((item) => item.category === activeFilter);
   }, [items, activeFilter]);
 
   return (

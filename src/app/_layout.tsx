@@ -24,7 +24,7 @@ export default function RootLayout() {
 }
 
 function RootNavigator() {
-  const { session, isLoading } = useAuth();
+  const { session, isLoading, isPasswordRecovery } = useAuth();
 
   if (isLoading) {
     return null;
@@ -36,7 +36,15 @@ function RootNavigator() {
         <Stack.Screen name="(auth)" />
       </Stack.Protected>
 
-      <Stack.Protected guard={!!session}>
+      {/* A PASSWORD_RECOVERY session is still a real session, so this guard
+          has to come before the normal "signed in" branch and exclude it -
+          otherwise a user tapping a reset link would land straight in the
+          app instead of the "set new password" screen. */}
+      <Stack.Protected guard={!!session && isPasswordRecovery}>
+        <Stack.Screen name="reset-password" />
+      </Stack.Protected>
+
+      <Stack.Protected guard={!!session && !isPasswordRecovery}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
           name="subscription"

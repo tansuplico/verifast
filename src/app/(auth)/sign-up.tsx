@@ -1,7 +1,15 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Link, router } from "expo-router";
 import { useState } from "react";
-import { Alert, Pressable, StyleSheet, View } from "react-native";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AuthTextField } from "@/components/auth-text-field";
@@ -66,7 +74,10 @@ export default function SignUpScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <View style={styles.header}>
         <SafeAreaView>
           <View style={styles.iconBadge}>
@@ -85,7 +96,11 @@ export default function SignUpScreen() {
         </SafeAreaView>
       </View>
 
-      <View style={styles.body}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <AuthTextField
           label="Full name"
           icon="person-outline"
@@ -158,8 +173,8 @@ export default function SignUpScreen() {
             </Pressable>
           </Link>
         </View>
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -194,9 +209,9 @@ const styles = StyleSheet.create({
     marginTop: Spacing.half,
   },
   body: {
-    flex: 1,
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.four,
+    paddingBottom: Spacing.six,
     gap: Spacing.three,
   },
   primaryButton: {

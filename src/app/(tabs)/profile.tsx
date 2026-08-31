@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   Alert,
@@ -85,6 +85,7 @@ function showComingSoon(feature: string) {
 }
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const { session, signOut } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileRow | null>(null);
@@ -190,9 +191,7 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          <Pressable
-            onPress={() => showComingSoon("Managing your subscription")}
-          >
+          <Pressable onPress={() => router.push("/subscription")}>
             <LinearGradient
               colors={["#14b8a6", "#0f766e"]}
               start={{ x: 1, y: 1 }}

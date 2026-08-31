@@ -50,8 +50,7 @@ function RootNavigator() {
           name="subscription"
           options={{
             presentation: "modal",
-            headerShown: true,
-            title: "Subscription",
+            headerShown: false,
           }}
         />
       </Stack.Protected>

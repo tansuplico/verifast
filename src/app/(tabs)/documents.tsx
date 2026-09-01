@@ -3,6 +3,7 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -13,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AddDocumentModal } from "@/components/add-document-modal";
+import { DocumentPreviewModal } from "@/components/document-preview-modal";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
@@ -30,10 +32,10 @@ type DocumentRow = {
   id: string;
   folder_id: string;
   name: string;
+  file_path: string | null;
   mime_type: string | null;
   file_size: number | null;
   created_at: string;
-  isDummy?: boolean;
 };
 
 const CATEGORY_ORDER: FolderCategory[] = [
@@ -92,27 +94,6 @@ function formatShortDate(dateString: string) {
   });
 }
 
-const DUMMY_DOCUMENTS: DocumentRow[] = [
-  {
-    id: "dummy-1",
-    folder_id: "",
-    name: "Sample Certificate.pdf",
-    mime_type: "application/pdf",
-    file_size: 850_000,
-    created_at: new Date().toISOString(),
-    isDummy: true,
-  },
-  {
-    id: "dummy-2",
-    folder_id: "",
-    name: "Sample ID Photo.jpg",
-    mime_type: "image/jpeg",
-    file_size: 1_450_000,
-    created_at: new Date().toISOString(),
-    isDummy: true,
-  },
-];
-
 function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
@@ -126,6 +107,8 @@ export default function DocumentsScreen() {
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [previewDoc, setPreviewDoc] = useState<DocumentRow | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   const loadDocuments = useCallback(
     async (isRefresh = false) => {
@@ -139,7 +122,9 @@ export default function DocumentsScreen() {
           .eq("user_id", session.user.id),
         supabase
           .from("documents")
-          .select("id, folder_id, name, mime_type, file_size, created_at")
+          .select(
+            "id, folder_id, name, file_path, mime_type, file_size, created_at",
+          )
           .eq("user_id", session.user.id)
           .order("created_at", { ascending: false }),
       ]);
@@ -150,6 +135,26 @@ export default function DocumentsScreen() {
     },
     [session],
   );
+
+  const handleDocPress = useCallback(async (doc: DocumentRow) => {
+    if (!doc.file_path) return;
+
+    const { data, error } = await supabase.storage
+      .from("documents")
+      .createSignedUrl(doc.file_path, 60);
+
+    if (error || !data?.signedUrl) {
+      Alert.alert("Couldn't open file", "Please try again.");
+      return;
+    }
+
+    if (doc.mime_type?.startsWith("image/")) {
+      setPreviewDoc(doc);
+      setPreviewImageUrl(data.signedUrl);
+    } else {
+      Linking.openURL(data.signedUrl);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -174,10 +179,9 @@ export default function DocumentsScreen() {
   }, [documents]);
 
   const filteredDocuments = useMemo(() => {
-    const combined = [...documents, ...DUMMY_DOCUMENTS];
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return combined;
-    return combined.filter((doc) => doc.name.toLowerCase().includes(query));
+    if (!query) return documents;
+    return documents.filter((doc) => doc.name.toLowerCase().includes(query));
   }, [documents, searchQuery]);
 
   return (
@@ -302,7 +306,11 @@ export default function DocumentsScreen() {
 
         {viewMode === "list" &&
           filteredDocuments.map((doc, index) => (
-            <View key={doc.id} style={styles.fileRow}>
+            <Pressable
+              key={doc.id}
+              style={styles.fileRow}
+              onPress={() => handleDocPress(doc)}
+            >
               <View
                 style={[
                   styles.fileIconBadge,
@@ -332,21 +340,21 @@ export default function DocumentsScreen() {
               </View>
               <Pressable
                 hitSlop={8}
-                onPress={
-                  doc.isDummy
-                    ? undefined
-                    : () => showComingSoon("Document actions")
-                }
+                onPress={() => showComingSoon("Document actions")}
               >
                 <Ionicons name="ellipsis-vertical" size={16} color="#c4c8d1" />
               </Pressable>
-            </View>
+            </Pressable>
           ))}
 
         {viewMode === "grid" && (
           <View style={styles.fileGrid}>
             {filteredDocuments.map((doc, index) => (
-              <View key={doc.id} style={styles.fileGridCard}>
+              <Pressable
+                key={doc.id}
+                style={styles.fileGridCard}
+                onPress={() => handleDocPress(doc)}
+              >
                 <View
                   style={[
                     styles.fileGridIconBadge,
@@ -376,7 +384,7 @@ export default function DocumentsScreen() {
                     {formatFileSize(doc.file_size)}
                   </ThemedText>
                 </View>
-              </View>
+              </Pressable>
             ))}
           </View>
         )}
@@ -392,6 +400,16 @@ export default function DocumentsScreen() {
         folders={folders}
         userId={session?.user.id}
         onUploaded={() => loadDocuments()}
+      />
+
+      <DocumentPreviewModal
+        visible={!!previewDoc}
+        imageUrl={previewImageUrl}
+        documentName={previewDoc?.name ?? ""}
+        onClose={() => {
+          setPreviewDoc(null);
+          setPreviewImageUrl(null);
+        }}
       />
     </SafeAreaView>
   );

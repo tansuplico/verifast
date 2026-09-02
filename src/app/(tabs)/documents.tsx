@@ -109,6 +109,7 @@ export default function DocumentsScreen() {
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [previewDoc, setPreviewDoc] = useState<DocumentRow | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
 
   const loadDocuments = useCallback(
     async (isRefresh = false) => {
@@ -156,10 +157,52 @@ export default function DocumentsScreen() {
     }
   }, []);
 
+  const handleDeleteDocument = useCallback(
+    (doc: DocumentRow) => {
+      Alert.alert(
+        "Delete document",
+        `Are you sure you want to delete "${doc.name}"? This can't be undone.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              if (doc.file_path) {
+                const { error: storageError } = await supabase.storage
+                  .from("documents")
+                  .remove([doc.file_path]);
+                if (storageError) {
+                  Alert.alert("Couldn't delete file", storageError.message);
+                  return;
+                }
+              }
+              const { error: dbError } = await supabase
+                .from("documents")
+                .delete()
+                .eq("id", doc.id);
+              if (dbError) {
+                Alert.alert("Couldn't delete document", dbError.message);
+                return;
+              }
+              loadDocuments();
+            },
+          },
+        ],
+      );
+    },
+    [loadDocuments],
+  );
+
   useFocusEffect(
     useCallback(() => {
       loadDocuments();
     }, [loadDocuments]),
+  );
+
+  const activeFolder = useMemo(
+    () => folders.find((folder) => folder.id === activeFolderId) ?? null,
+    [folders, activeFolderId],
   );
 
   const orderedFolders = useMemo(
@@ -180,9 +223,12 @@ export default function DocumentsScreen() {
 
   const filteredDocuments = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return documents;
-    return documents.filter((doc) => doc.name.toLowerCase().includes(query));
-  }, [documents, searchQuery]);
+    return documents.filter((doc) => {
+      if (activeFolderId && doc.folder_id !== activeFolderId) return false;
+      if (query && !doc.name.toLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [documents, searchQuery, activeFolderId]);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -266,8 +312,17 @@ export default function DocumentsScreen() {
           {orderedFolders.map((folder) => {
             const style = FOLDER_STYLE[folder.category];
             const count = folderCounts.get(folder.id) ?? 0;
+            const isActive = activeFolderId === folder.id;
             return (
-              <View key={folder.id} style={styles.folderCard}>
+              <Pressable
+                key={folder.id}
+                style={[styles.folderCard, isActive && styles.folderCardActive]}
+                onPress={() =>
+                  setActiveFolderId((current) =>
+                    current === folder.id ? null : folder.id,
+                  )
+                }
+              >
                 <View
                   style={[
                     styles.folderIconBadge,
@@ -284,7 +339,7 @@ export default function DocumentsScreen() {
                     {count} {count === 1 ? "file" : "files"}
                   </ThemedText>
                 </View>
-              </View>
+              </Pressable>
             );
           })}
         </View>
@@ -300,7 +355,9 @@ export default function DocumentsScreen() {
           <ThemedText type="small" style={styles.emptyText}>
             {searchQuery
               ? "No documents match your search"
-              : "No documents yet"}
+              : activeFolder
+                ? `No documents in ${activeFolder.name} yet`
+                : "No documents yet"}
           </ThemedText>
         )}
 
@@ -338,10 +395,7 @@ export default function DocumentsScreen() {
                   {formatBadge(doc.mime_type)}
                 </ThemedText>
               </View>
-              <Pressable
-                hitSlop={8}
-                onPress={() => showComingSoon("Document actions")}
-              >
+              <Pressable hitSlop={8} onPress={() => handleDeleteDocument(doc)}>
                 <Ionicons name="ellipsis-vertical" size={16} color="#c4c8d1" />
               </Pressable>
             </Pressable>
@@ -355,18 +409,33 @@ export default function DocumentsScreen() {
                 style={styles.fileGridCard}
                 onPress={() => handleDocPress(doc)}
               >
-                <View
-                  style={[
-                    styles.fileGridIconBadge,
-                    { backgroundColor: DOC_COLORS[index % DOC_COLORS.length] },
-                  ]}
-                >
-                  <Ionicons
-                    name={iconForMimeType(doc.mime_type)}
-                    size={22}
-                    color="#ffffff"
-                  />
+                <View style={styles.fileGridTopRow}>
+                  <View
+                    style={[
+                      styles.fileGridIconBadge,
+                      {
+                        backgroundColor: DOC_COLORS[index % DOC_COLORS.length],
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={iconForMimeType(doc.mime_type)}
+                      size={22}
+                      color="#ffffff"
+                    />
+                  </View>
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => handleDeleteDocument(doc)}
+                  >
+                    <Ionicons
+                      name="ellipsis-vertical"
+                      size={16}
+                      color="#c4c8d1"
+                    />
+                  </Pressable>
                 </View>
+
                 <ThemedText
                   type="smallBold"
                   style={styles.fileGridName}
@@ -476,6 +545,11 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     padding: Spacing.three,
   },
+  folderCardActive: {
+    borderWidth: 1.5,
+    borderColor: "#0d9488",
+    backgroundColor: "#e6f6f4",
+  },
   folderIconBadge: {
     width: 36,
     height: 36,
@@ -527,6 +601,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 2,
+  },
+  fileGridTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
   },
   fileGridName: { color: "#1a1c20" },
   fileGridMetaRow: {

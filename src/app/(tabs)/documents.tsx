@@ -14,11 +14,14 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AddDocumentModal } from "@/components/add-document-modal";
+import { DocumentActionsMenu } from "@/components/document-actions-menu";
 import { DocumentPreviewModal } from "@/components/document-preview-modal";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
+
+import type { DocumentRow } from "@/types/documents";
 
 type FolderCategory = "academic" | "financial" | "identification" | "forms";
 
@@ -26,16 +29,6 @@ type FolderRow = {
   id: string;
   category: FolderCategory;
   name: string;
-};
-
-type DocumentRow = {
-  id: string;
-  folder_id: string;
-  name: string;
-  file_path: string | null;
-  mime_type: string | null;
-  file_size: number | null;
-  created_at: string;
 };
 
 const CATEGORY_ORDER: FolderCategory[] = [
@@ -111,6 +104,7 @@ export default function DocumentsScreen() {
   const [previewDoc, setPreviewDoc] = useState<DocumentRow | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
+  const [actionsDoc, setActionsDoc] = useState<DocumentRow | null>(null);
 
   const loadDocuments = useCallback(
     async (isRefresh = false) => {
@@ -396,7 +390,7 @@ export default function DocumentsScreen() {
                   {formatBadge(doc.mime_type)}
                 </ThemedText>
               </View>
-              <Pressable hitSlop={8} onPress={() => handleDeleteDocument(doc)}>
+              <Pressable hitSlop={8} onPress={() => setActionsDoc(doc)}>
                 <Ionicons name="ellipsis-vertical" size={16} color="#c4c8d1" />
               </Pressable>
             </Pressable>
@@ -425,10 +419,7 @@ export default function DocumentsScreen() {
                       color="#ffffff"
                     />
                   </View>
-                  <Pressable
-                    hitSlop={8}
-                    onPress={() => handleDeleteDocument(doc)}
-                  >
+                  <Pressable hitSlop={8} onPress={() => setActionsDoc(doc)}>
                     <Ionicons
                       name="ellipsis-vertical"
                       size={16}
@@ -480,6 +471,16 @@ export default function DocumentsScreen() {
           setPreviewDoc(null);
           setPreviewImageUrl(null);
         }}
+      />
+
+      <DocumentActionsMenu
+        visible={!!actionsDoc}
+        document={actionsDoc}
+        folders={folders}
+        onClose={() => setActionsDoc(null)}
+        onRenamed={() => loadDocuments()}
+        onMoved={() => loadDocuments()}
+        onDeleteRequested={handleDeleteDocument}
       />
     </SafeAreaView>
   );

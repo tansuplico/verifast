@@ -87,33 +87,45 @@ export default function RequestedDocsScreen() {
   );
 
   const handleAdvance = useCallback(
-    async (request: RequestRow) => {
+    (request: RequestRow) => {
       const nextStatus = NEXT_STATUS[request.status];
       if (!nextStatus) return;
 
-      const updates: Partial<RequestRow> = { status: nextStatus };
-      if (nextStatus === "released") {
-        updates.released_date = new Date().toISOString().slice(0, 10);
-      }
+      Alert.alert(
+        `Mark as ${STATUS_STYLE[nextStatus].label}?`,
+        `Update "${request.document_type}" to ${STATUS_STYLE[nextStatus].label}?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Confirm",
+            onPress: async () => {
+              const updates: Partial<RequestRow> = { status: nextStatus };
+              if (nextStatus === "released") {
+                updates.released_date = new Date().toISOString().slice(0, 10);
+              }
 
-      const { data, error } = await supabase
-        .from("document_requests")
-        .update(updates)
-        .eq("id", request.id)
-        .select();
+              const { data, error } = await supabase
+                .from("document_requests")
+                .update(updates)
+                .eq("id", request.id)
+                .select();
 
-      if (error) {
-        Alert.alert("Couldn't update request", error.message);
-        return;
-      }
-      if (!data || data.length === 0) {
-        Alert.alert(
-          "Couldn't update request",
-          "The request wasn't updated — this usually means the update was blocked by a database permission (RLS) rule.",
-        );
-        return;
-      }
-      loadRequests();
+              if (error) {
+                Alert.alert("Couldn't update request", error.message);
+                return;
+              }
+              if (!data || data.length === 0) {
+                Alert.alert(
+                  "Couldn't update request",
+                  "The request wasn't updated — this usually means the update was blocked by a database permission (RLS) rule.",
+                );
+                return;
+              }
+              loadRequests();
+            },
+          },
+        ],
+      );
     },
     [loadRequests],
   );

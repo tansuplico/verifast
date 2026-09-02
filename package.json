@@ -7,6 +7,7 @@
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.112.4",
+    "base64-arraybuffer": "^1.0.2",
     "expo": "~57.0.17",
     "expo-constants": "~57.0.15",
     "expo-device": "~57.0.1",

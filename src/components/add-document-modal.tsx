@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { decode } from "base64-arraybuffer";
 import * as DocumentPicker from "expo-document-picker";
-import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { useState } from "react";
 import {
@@ -31,6 +31,7 @@ type PickedFile = {
   name: string;
   mimeType: string;
   size: number | null;
+  base64?: string;
 };
 
 const FOLDER_STYLE: Record<
@@ -121,7 +122,10 @@ export function AddDocumentModal({
       );
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.8,
+      base64: true,
+    });
     if (result.canceled) return;
     const asset = result.assets[0];
     applyPickedFile({
@@ -129,6 +133,7 @@ export function AddDocumentModal({
       name: asset.fileName ?? `photo-${Date.now()}.jpg`,
       mimeType: asset.mimeType ?? "image/jpeg",
       size: asset.fileSize ?? null,
+      base64: asset.base64 ?? undefined,
     });
   }
 
@@ -144,6 +149,7 @@ export function AddDocumentModal({
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.8,
+      base64: true,
     });
     if (result.canceled) return;
     const asset = result.assets[0];
@@ -152,12 +158,13 @@ export function AddDocumentModal({
       name: asset.fileName ?? `image-${Date.now()}.jpg`,
       mimeType: asset.mimeType ?? "image/jpeg",
       size: asset.fileSize ?? null,
+      base64: asset.base64 ?? undefined,
     });
   }
 
   async function handleFromFiles() {
     const result = await DocumentPicker.getDocumentAsync({
-      type: ALLOWED_MIME_TYPES,
+      type: ["application/pdf"],
       copyToCacheDirectory: true,
     });
     if (result.canceled) return;
@@ -176,13 +183,13 @@ export function AddDocumentModal({
     }
     setIsUploading(true);
     try {
-      const file = new File(pickedFile.uri);
-      const arrayBuffer = await file.arrayBuffer();
+      const arrayBuffer = pickedFile.base64
+        ? decode(pickedFile.base64)
+        : await fetch(pickedFile.uri).then((r) => r.arrayBuffer());
       const extension = pickedFile.name.includes(".")
         ? pickedFile.name.split(".").pop()
         : "dat";
       const storagePath = `${userId}/${Date.now()}-${Math.round(Math.random() * 1e6)}.${extension}`;
-
       const uploadResult = await supabase.storage
         .from("documents")
         .upload(storagePath, arrayBuffer, {

@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
@@ -52,10 +52,10 @@ const FOLDER_STYLE: Record<
   academic: { icon: "school", color: "#8b5cf6" },
   financial: { icon: "card", color: "#10b981" },
   identification: { icon: "finger-print", color: "#3b82f6" },
-  forms: { icon: "document-text", color: "#8b5cf6" },
+  forms: { icon: "document-text", color: "#FF0800" },
 };
 
-const DOC_COLORS = ["#10b1a3", "#0BDA51", "#3b82f6", "#8b5cf6"];
+const DOC_COLORS = ["#10b1a3", "#0BDA51", "#3b82f6", "#FF0800"];
 
 function iconForMimeType(
   mimeType: string | null,
@@ -100,6 +100,7 @@ function showComingSoon(feature: string) {
 
 export default function DocumentsScreen() {
   const { session } = useAuth();
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -299,7 +300,7 @@ export default function DocumentsScreen() {
           </ThemedText>
           <Pressable
             style={styles.requestedDocsLink}
-            onPress={() => showComingSoon("Requested documents tracking")}
+            onPress={() => router.push("/requested-docs")}
           >
             <Ionicons name="receipt-outline" size={14} color="#0d9488" />
             <ThemedText type="small" style={styles.requestedDocsText}>

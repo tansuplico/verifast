@@ -41,7 +41,7 @@ const FOLDER_STYLE: Record<
   academic: { icon: "school", color: "#8b5cf6" },
   financial: { icon: "card", color: "#10b981" },
   identification: { icon: "finger-print", color: "#3b82f6" },
-  forms: { icon: "document-text", color: "#8b5cf6" },
+  forms: { icon: "document-text", color: "#FF0800" },
 };
 
 // Must match the "documents" storage bucket's MIME allowlist and 10 MB limit.

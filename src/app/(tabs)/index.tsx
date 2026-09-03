@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   Pressable,
@@ -72,6 +72,7 @@ const REMINDER_TYPE_STYLE: Record<
 };
 
 export default function HomeScreen() {
+  const router = useRouter();
   const { session } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -246,7 +247,7 @@ export default function HomeScreen() {
               <ThemedText type="smallBold" style={styles.sectionTitle}>
                 Document Alerts
               </ThemedText>
-              <Pressable>
+              <Pressable onPress={() => router.push("/deadlines-reminders")}>
                 <ThemedText type="small" style={styles.sectionLink}>
                   See all ›
                 </ThemedText>

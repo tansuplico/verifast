@@ -53,6 +53,13 @@ function RootNavigator() {
             headerShown: false,
           }}
         />
+        <Stack.Screen
+          name="deadlines-reminders"
+          options={{
+            presentation: "modal",
+            headerShown: false,
+          }}
+        />
       </Stack.Protected>
     </Stack>
   );

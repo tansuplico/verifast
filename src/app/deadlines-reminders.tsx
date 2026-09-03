@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -12,8 +13,15 @@ import {
   type ReminderCategory,
 } from "@/constants/reminder-categories";
 import { Spacing } from "@/constants/theme";
+import {
+  cancelAllReminderNotifications,
+  requestNotificationPermissionsAsync,
+  scheduleReminderNotification,
+} from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
+
+const PUSH_ENABLED_KEY = "push_notifications_enabled";
 
 // Days-out window the top banner counts against ("upcoming deadlines in
 // the next 3 weeks").
@@ -65,10 +73,36 @@ export default function DeadlinesRemindersScreen() {
   // Local-state only, same as the Push/Email toggles on the Profile screen
   // and the 2FA toggle on Security & Privacy - Expo Notifications isn't
   // integrated yet (see pending tasks), so there's no backend to persist to.
+  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(true);
   const [emailEnabled, setEmailEnabled] = useState(false);
-  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
 
+  useEffect(() => {
+    AsyncStorage.getItem(PUSH_ENABLED_KEY).then((value) => {
+      if (value !== null) setPushEnabled(value === "true");
+    });
+  }, []);
+
+  const handlePushToggle = useCallback(async (next: boolean) => {
+    if (next) {
+      const granted = await requestNotificationPermissionsAsync();
+      if (!granted) {
+        Alert.alert(
+          "Notifications disabled",
+          "Enable notifications for VeriFast in your device settings to get deadline alerts.",
+        );
+        return;
+      }
+      setPushEnabled(true);
+      await AsyncStorage.setItem(PUSH_ENABLED_KEY, "true");
+      // Scheduling itself is handled by the effect below, which reacts to
+      // pushEnabled flipping true and (re)schedules every current reminder.
+    } else {
+      setPushEnabled(false);
+      await AsyncStorage.setItem(PUSH_ENABLED_KEY, "false");
+      await cancelAllReminderNotifications();
+    }
+  }, []);
   const loadReminders = useCallback(async () => {
     if (!session) return;
     setIsLoading(true);
@@ -96,6 +130,23 @@ export default function DeadlinesRemindersScreen() {
       loadReminders();
     }, [loadReminders]),
   );
+
+  useEffect(() => {
+    if (!pushEnabled) return;
+
+    (async () => {
+      const granted = await requestNotificationPermissionsAsync();
+      if (!granted) return;
+
+      reminders.forEach((reminder) => {
+        scheduleReminderNotification({
+          id: reminder.id,
+          title: reminder.title,
+          dueDate: reminder.dueDate,
+        });
+      });
+    })();
+  }, [reminders, pushEnabled]);
 
   const upcomingCount = reminders.filter(
     (r) => daysUntil(r.dueDate) <= UPCOMING_WINDOW_DAYS,
@@ -207,7 +258,7 @@ export default function DeadlinesRemindersScreen() {
               </View>
               <ToggleSwitch
                 value={pushEnabled}
-                onValueChange={setPushEnabled}
+                onValueChange={handlePushToggle}
               />
             </View>
 

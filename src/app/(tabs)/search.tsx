@@ -1,10 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { DocumentPreviewModal } from "@/components/document-preview-modal";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
@@ -26,6 +28,7 @@ type DocumentResult = {
   id: string;
   name: string;
   mime_type: string | null;
+  file_path: string;
 };
 
 type AcademicInfoResult = {
@@ -110,7 +113,31 @@ export default function SearchScreen() {
   const [hasSearched, setHasSearched] = useState(false);
   const [documentResults, setDocumentResults] = useState<DocumentResult[]>([]);
   const [infoResults, setInfoResults] = useState<AcademicInfoResult[]>([]);
+  const [previewDoc, setPreviewDoc] = useState<DocumentResult | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
+  // Same open logic as Documents' handleDocPress: images preview in-app,
+  // everything else (PDFs) hands off to the device's default viewer via a
+  // signed URL, since there's no dev client for a native PDF renderer yet.
+  const handleDocPress = useCallback(async (doc: DocumentResult) => {
+    if (!doc.file_path) return;
+
+    const { data, error } = await supabase.storage
+      .from("documents")
+      .createSignedUrl(doc.file_path, 60);
+
+    if (error || !data?.signedUrl) {
+      Alert.alert("Couldn't open file", "Please try again.");
+      return;
+    }
+
+    if (doc.mime_type?.startsWith("image/")) {
+      setPreviewDoc(doc);
+      setPreviewImageUrl(data.signedUrl);
+    } else {
+      Linking.openURL(data.signedUrl);
+    }
+  }, []);
   useEffect(() => {
     AsyncStorage.getItem(RECENT_SEARCHES_KEY).then((value) => {
       if (value) setRecentSearches(JSON.parse(value));
@@ -133,7 +160,7 @@ export default function SearchScreen() {
         session
           ? supabase
               .from("documents")
-              .select("id, name, mime_type")
+              .select("id, name, mime_type, file_path")
               .eq("user_id", session.user.id)
               .ilike("name", `%${trimmed}%`)
               .order("created_at", { ascending: false })
@@ -286,7 +313,7 @@ export default function SearchScreen() {
                     <Pressable
                       key={doc.id}
                       style={styles.resultRow}
-                      onPress={() => showComingSoon("Document preview")}
+                      onPress={() => handleDocPress(doc)}
                     >
                       <View style={styles.resultIconBadge}>
                         <Ionicons
@@ -351,6 +378,15 @@ export default function SearchScreen() {
           </>
         )}
       </ScrollView>
+      <DocumentPreviewModal
+        visible={!!previewDoc}
+        imageUrl={previewImageUrl}
+        documentName={previewDoc?.name ?? ""}
+        onClose={() => {
+          setPreviewDoc(null);
+          setPreviewImageUrl(null);
+        }}
+      />
     </SafeAreaView>
   );
 }

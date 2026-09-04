@@ -183,7 +183,7 @@ export default function ProfileScreen() {
                 )}
               </View>
 
-              <Pressable onPress={() => showComingSoon("Editing your profile")}>
+              <Pressable onPress={() => router.push("/edit-profile")}>
                 <ThemedText type="link" style={styles.editLink}>
                   Edit
                 </ThemedText>

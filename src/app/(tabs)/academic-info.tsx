@@ -11,21 +11,20 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import {
+  AddAcademicInfoModal,
+  type AcademicInfoItem,
+} from "@/components/add-academic-info-modal";
 import { ThemedText } from "@/components/themed-text";
+import {
+  CATEGORY_STYLE,
+  type AcademicInfoCategory,
+} from "@/constants/academic-info-categories";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
 
-type AcademicInfoCategory = "curriculum" | "announcement" | "activity";
-
-type AcademicInfoRow = {
-  id: string;
-  category: AcademicInfoCategory;
-  title: string;
-  content: string | null;
-  is_pinned: boolean;
-  posted_at: string;
-};
+type AcademicInfoRow = AcademicInfoItem & { posted_at: string };
 
 type FilterKey = "all" | AcademicInfoCategory;
 
@@ -35,15 +34,6 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "announcement", label: "Announcements" },
   { key: "activity", label: "Activities" },
 ];
-
-const CATEGORY_STYLE: Record<
-  AcademicInfoCategory,
-  { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }
-> = {
-  announcement: { icon: "megaphone", color: "#f59e0b", label: "Announcement" },
-  activity: { icon: "calendar", color: "#10b981", label: "Activity" },
-  curriculum: { icon: "book", color: "#7c5cfc", label: "Curriculum" },
-};
 
 function formatPostedDate(dateString: string) {
   return new Date(dateString).toLocaleDateString("en-US", {
@@ -57,27 +47,6 @@ function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
 
-const DUMMY_ACADEMIC_INFO: AcademicInfoRow[] = [
-  {
-    id: "dummy-1",
-    category: "announcement",
-    title: "Enrollment Period Extended",
-    content:
-      "The first semester enrollment period has been extended until September 10, 2026. Students with incomplete requirements may still proceed.",
-    is_pinned: false,
-    posted_at: new Date("2026-08-27").toISOString(),
-  },
-  {
-    id: "dummy-2",
-    category: "activity",
-    title: "University Orientation Week",
-    content:
-      "All first year students are required to attend the orientation program from September 1 to 5 at the Main Auditorium.",
-    is_pinned: false,
-    posted_at: new Date("2026-08-25").toISOString(),
-  },
-];
-
 export default function AcademicInfoScreen() {
   const { session } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
@@ -85,22 +54,24 @@ export default function AcademicInfoScreen() {
   const [program, setProgram] = useState<string | null>(null);
   const [items, setItems] = useState<AcademicInfoRow[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [editingItem, setEditingItem] = useState<AcademicInfoItem | null>(null);
 
   const loadData = useCallback(
     async (isRefresh = false) => {
+      if (!session) return;
       isRefresh ? setIsRefreshing(true) : setIsLoading(true);
 
       const [profileResult, infoResult] = await Promise.all([
-        session
-          ? supabase
-              .from("profiles")
-              .select("program")
-              .eq("id", session.user.id)
-              .single()
-          : Promise.resolve({ data: null }),
+        supabase
+          .from("profiles")
+          .select("program")
+          .eq("id", session.user.id)
+          .single(),
         supabase
           .from("academic_info")
           .select("id, category, title, content, is_pinned, posted_at")
+          .eq("user_id", session.user.id)
           .order("is_pinned", { ascending: false })
           .order("posted_at", { ascending: false }),
       ]);
@@ -119,9 +90,8 @@ export default function AcademicInfoScreen() {
   );
 
   const filteredItems = useMemo(() => {
-    const combined = [...items, ...DUMMY_ACADEMIC_INFO];
-    if (activeFilter === "all") return combined;
-    return combined.filter((item) => item.category === activeFilter);
+    if (activeFilter === "all") return items;
+    return items.filter((item) => item.category === activeFilter);
   }, [items, activeFilter]);
 
   return (
@@ -181,7 +151,7 @@ export default function AcademicInfoScreen() {
         {!isLoading && filteredItems.length === 0 && (
           <ThemedText type="small" style={styles.emptyText}>
             {activeFilter === "all"
-              ? "No academic info yet"
+              ? "No academic info yet - tap + to add your first entry"
               : `No ${FILTERS.find((filter) => filter.key === activeFilter)?.label.toLowerCase()} yet`}
           </ThemedText>
         )}
@@ -192,7 +162,10 @@ export default function AcademicInfoScreen() {
             <Pressable
               key={item.id}
               style={styles.card}
-              onPress={() => showComingSoon("Academic info details")}
+              onPress={() => {
+                setEditingItem(item);
+                setIsModalVisible(true);
+              }}
             >
               <View style={styles.cardHeaderRow}>
                 <View
@@ -239,6 +212,24 @@ export default function AcademicInfoScreen() {
           );
         })}
       </ScrollView>
+
+      <Pressable
+        style={styles.fab}
+        onPress={() => {
+          setEditingItem(null);
+          setIsModalVisible(true);
+        }}
+      >
+        <Ionicons name="add" size={26} color="#ffffff" />
+      </Pressable>
+
+      <AddAcademicInfoModal
+        visible={isModalVisible}
+        onClose={() => setIsModalVisible(false)}
+        userId={session?.user.id}
+        editingItem={editingItem}
+        onSaved={() => loadData()}
+      />
     </SafeAreaView>
   );
 }
@@ -262,6 +253,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#efeafe",
     alignItems: "center",
     justifyContent: "center",
+  },
+  fab: {
+    position: "absolute",
+    right: Spacing.four,
+    bottom: Spacing.four,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#0d9488",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   filterRow: {
     flexDirection: "row",

@@ -10,7 +10,7 @@ import { Spacing } from "@/constants/theme";
 import { useAuth } from "@/providers/auth-provider";
 
 export default function SignInScreen() {
-  const { signIn } = useAuth();
+  const { signIn, signInWithGoogle } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,10 +34,11 @@ export default function SignInScreen() {
     router.push("/forgot-password");
   }
 
-  function handleGoogleSignIn() {
-    // Google OAuth isn't wired up yet (pending task) - this is still the
-    // placeholder Ionicons glyph, not Google's brand-guideline logo.
-    Alert.alert("Coming soon", "Google sign-in isn't set up yet.");
+  async function handleGoogleSignIn() {
+    const { error } = await signInWithGoogle();
+    if (error) {
+      Alert.alert("Sign in failed", error);
+    }
   }
 
   return (

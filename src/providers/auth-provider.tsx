@@ -1,4 +1,7 @@
 import type { Session } from "@supabase/supabase-js";
+import { makeRedirectUri } from "expo-auth-session";
+import * as QueryParams from "expo-auth-session/build/QueryParams";
+import * as WebBrowser from "expo-web-browser";
 import {
   createContext,
   useContext,
@@ -30,8 +33,9 @@ type AuthContextValue = {
     code: string,
   ) => Promise<{ error: string | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
 };
-
+WebBrowser.maybeCompleteAuthSession();
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -120,7 +124,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return { error: error?.message ?? null };
       },
+      async signInWithGoogle() {
+        // skipBrowserRedirect + openAuthSessionAsync lets us capture the
+        // verifast:// redirect ourselves and exchange it for a session
+        // directly here, instead of needing a global deep-link listener
+        // like the password-reset flow used.
+        const redirectTo = makeRedirectUri();
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo, skipBrowserRedirect: true },
+        });
+        if (error) {
+          return { error: error.message };
+        }
+
+        const result = await WebBrowser.openAuthSessionAsync(
+          data.url ?? "",
+          redirectTo,
+        );
+        if (result.type !== "success") {
+          // User cancelled or dismissed the browser - not a real error.
+          return { error: null };
+        }
+
+        const { params, errorCode } = QueryParams.getQueryParams(result.url);
+        if (errorCode) {
+          return { error: errorCode };
+        }
+        if (!params.access_token || !params.refresh_token) {
+          return { error: "Google sign-in didn't return a session." };
+        }
+
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+        });
+        return { error: sessionError?.message ?? null };
+      },
     }),
+
     [session, isLoading, isPasswordRecovery],
   );
 

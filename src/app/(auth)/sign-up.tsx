@@ -18,7 +18,7 @@ import { Spacing } from "@/constants/theme";
 import { useAuth } from "@/providers/auth-provider";
 
 export default function SignUpScreen() {
-  const { signUp } = useAuth();
+  const { signUp, signInWithGoogle } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,10 +67,11 @@ export default function SignUpScreen() {
     // the root layout's Stack.Protected guard switches to (tabs) itself.
   }
 
-  function handleGoogleSignUp() {
-    // Google OAuth isn't wired up yet (pending task) - this is still the
-    // placeholder Ionicons glyph, not Google's brand-guideline logo.
-    Alert.alert("Coming soon", "Google sign-in isn't set up yet.");
+  async function handleGoogleSignUp() {
+    const { error } = await signInWithGoogle();
+    if (error) {
+      Alert.alert("Sign in failed", error);
+    }
   }
 
   return (

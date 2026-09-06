@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AuthTextField } from "@/components/auth-text-field";
+import { GoogleIcon } from "@/components/google-icon";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { useAuth } from "@/providers/auth-provider";
@@ -156,7 +157,7 @@ export default function SignUpScreen() {
         </View>
 
         <Pressable style={styles.googleButton} onPress={handleGoogleSignUp}>
-          <Ionicons name="logo-google" size={18} color="#4285F4" />
+          <GoogleIcon size={18} />
           <ThemedText type="smallBold" style={styles.googleButtonText}>
             Continue with Google
           </ThemedText>

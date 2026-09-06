@@ -288,7 +288,7 @@ export default function ProfileScreen() {
               </View>
             </Pressable>
 
-            <Pressable onPress={() => showComingSoon("Help and support")}>
+            <Pressable onPress={() => router.push("/help-support")}>
               <View style={[styles.linkRow, styles.linkRowLast]}>
                 <Ionicons
                   name="help-circle-outline"

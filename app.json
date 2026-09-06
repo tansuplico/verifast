@@ -18,7 +18,9 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "permissions": ["SCHEDULE_EXACT_ALARM"]
+      "permissions": [
+        "SCHEDULE_EXACT_ALARM"
+      ]
     },
     "web": {
       "output": "static",
@@ -46,7 +48,8 @@
         {
           "color": "#0d9488"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

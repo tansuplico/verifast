@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
-  LayoutAnimation,
   Linking,
   Pressable,
   ScrollView,
@@ -14,7 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
-
+import Animated, { LinearTransition } from "react-native-reanimated";
 function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
@@ -126,20 +125,18 @@ export default function HelpSupportScreen() {
           {FAQS.map((faq, index) => {
             const isExpanded = expandedIndex === index;
             return (
-              <Pressable
+              <Animated.View
                 key={faq.question}
-                onPress={() => {
-                  LayoutAnimation.configureNext(
-                    LayoutAnimation.Presets.easeInEaseOut,
-                  );
-                  setExpandedIndex(isExpanded ? null : index);
-                }}
+                layout={LinearTransition.duration(250)}
                 style={[
                   styles.faqRow,
                   index === FAQS.length - 1 && styles.faqRowLast,
                 ]}
               >
-                <View style={styles.faqQuestionRow}>
+                <Pressable
+                  onPress={() => setExpandedIndex(isExpanded ? null : index)}
+                  style={styles.faqQuestionRow}
+                >
                   <Ionicons
                     name="help-circle-outline"
                     size={16}
@@ -153,13 +150,16 @@ export default function HelpSupportScreen() {
                     size={16}
                     color="#c4c8d1"
                   />
-                </View>
+                </Pressable>
                 {isExpanded ? (
-                  <ThemedText type="small" style={styles.faqAnswer}>
+                  <Animated.Text
+                    entering={undefined}
+                    style={[styles.faqAnswer]}
+                  >
                     {faq.answer}
-                  </ThemedText>
+                  </Animated.Text>
                 ) : null}
-              </Pressable>
+              </Animated.View>
             );
           })}
         </View>

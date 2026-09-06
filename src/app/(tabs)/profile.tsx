@@ -260,7 +260,7 @@ export default function ProfileScreen() {
               ACCOUNT
             </ThemedText>
 
-            <Pressable onPress={() => showComingSoon("Backup and recovery")}>
+            <Pressable onPress={() => router.push("/backup-recovery")}>
               <View style={styles.linkRow}>
                 <Ionicons
                   name="cloud-upload-outline"

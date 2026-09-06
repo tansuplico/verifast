@@ -67,6 +67,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="requested-docs" options={{ href: null }} />
       <Tabs.Screen name="edit-profile" options={{ href: null }} />
       <Tabs.Screen name="help-support" options={{ href: null }} />
+      <Tabs.Screen name="backup-recovery" options={{ href: null }} />
     </Tabs>
   );
 }

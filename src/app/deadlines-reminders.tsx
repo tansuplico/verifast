@@ -4,7 +4,10 @@ import { useCallback, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { AddReminderModal } from "@/components/add-reminder-modal";
+import {
+  AddReminderModal,
+  type EditableReminder,
+} from "@/components/add-reminder-modal";
 import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
 import {
@@ -68,6 +71,8 @@ export default function DeadlinesRemindersScreen() {
   const [pushEnabled, setPushEnabled] = useState(true);
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [editingReminder, setEditingReminder] =
+    useState<EditableReminder | null>(null);
 
   const loadReminders = useCallback(async () => {
     if (!session) return;
@@ -154,7 +159,14 @@ export default function DeadlinesRemindersScreen() {
               const style = CATEGORY_STYLE[reminder.category];
               const days = daysUntil(reminder.dueDate);
               return (
-                <View key={reminder.id} style={styles.card}>
+                <Pressable
+                  key={reminder.id}
+                  style={styles.card}
+                  onPress={() => {
+                    setEditingReminder(reminder);
+                    setIsAddModalVisible(true);
+                  }}
+                >
                   <View style={styles.cardTopRow}>
                     <View
                       style={[
@@ -192,7 +204,7 @@ export default function DeadlinesRemindersScreen() {
                   <ThemedText type="small" style={styles.cardSubtitle}>
                     {formatFullDate(reminder.dueDate)} · {dueInLabel(days)}
                   </ThemedText>
-                </View>
+                </Pressable>
               );
             })}
           </View>
@@ -227,7 +239,10 @@ export default function DeadlinesRemindersScreen() {
         </ScrollView>
         <Pressable
           style={styles.fab}
-          onPress={() => setIsAddModalVisible(true)}
+          onPress={() => {
+            setEditingReminder(null);
+            setIsAddModalVisible(true);
+          }}
         >
           <Ionicons name="add" size={26} color="#ffffff" />
         </Pressable>
@@ -236,7 +251,8 @@ export default function DeadlinesRemindersScreen() {
           visible={isAddModalVisible}
           onClose={() => setIsAddModalVisible(false)}
           userId={session?.user.id}
-          onCreated={() => loadReminders()}
+          editingReminder={editingReminder}
+          onSaved={() => loadReminders()}
         />
       </SafeAreaView>
     </View>

@@ -1,6 +1,6 @@
 import DateTimePicker from "@expo/ui/community/datetime-picker";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -21,11 +21,19 @@ import {
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 
+export type EditableReminder = {
+  id: string;
+  title: string;
+  category: ReminderCategory;
+  dueDate: string;
+};
+
 type AddReminderModalProps = {
   visible: boolean;
   onClose: () => void;
   userId: string | undefined;
-  onCreated: () => void;
+  onSaved: () => void;
+  editingReminder: EditableReminder | null;
 };
 
 const CATEGORY_OPTIONS: ReminderCategory[] = [
@@ -57,7 +65,8 @@ export function AddReminderModal({
   visible,
   onClose,
   userId,
-  onCreated,
+  onSaved,
+  editingReminder,
 }: AddReminderModalProps) {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<ReminderCategory>("document");
@@ -65,17 +74,23 @@ export function AddReminderModal({
   const [showPicker, setShowPicker] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  function reset() {
-    setTitle("");
-    setCategory("document");
-    setDueDate(new Date());
+  // Re-sync local fields whenever a different reminder is opened for
+  // editing (or the modal is opened fresh to add a new one) - same pattern
+  // as AddAcademicInfoModal.
+  useEffect(() => {
+    if (!visible) return;
+    setTitle(editingReminder?.title ?? "");
+    setCategory(editingReminder?.category ?? "document");
+    setDueDate(
+      editingReminder
+        ? new Date(`${editingReminder.dueDate}T00:00:00`)
+        : new Date(),
+    );
     setShowPicker(false);
-    setIsSaving(false);
-  }
+  }, [visible, editingReminder]);
 
   function handleClose() {
     if (isSaving) return;
-    reset();
     onClose();
   }
 
@@ -86,17 +101,27 @@ export function AddReminderModal({
     // `type` isn't shown anywhere in this screen's UI - it's a leftover
     // required column from before Document/Checklist/Payment categories
     // existed, and only affects the icon/color on Home's older "Document
-    // Alerts" preview cards. Defaulting to "submission" here matches the
-    // fallback Home already uses for any unrecognized type, so this is a
-    // deliberate simplification, not an oversight - worth a proper type
-    // picker (or dropping the column) later if that Home styling matters.
-    const { error } = await supabase.from("reminders").insert({
-      user_id: userId,
-      title: title.trim(),
-      category,
-      type: "submission",
-      due_date: formatDateForDb(dueDate),
-    });
+    // Alerts" preview cards. Defaulting to "submission" on create matches
+    // the fallback Home already uses for any unrecognized type, and edits
+    // deliberately leave the column untouched (no picker exists for it) -
+    // worth a proper type picker (or dropping the column) later if that
+    // Home styling matters.
+    const { error } = editingReminder
+      ? await supabase
+          .from("reminders")
+          .update({
+            title: title.trim(),
+            category,
+            due_date: formatDateForDb(dueDate),
+          })
+          .eq("id", editingReminder.id)
+      : await supabase.from("reminders").insert({
+          user_id: userId,
+          title: title.trim(),
+          category,
+          type: "submission",
+          due_date: formatDateForDb(dueDate),
+        });
 
     setIsSaving(false);
 
@@ -105,9 +130,39 @@ export function AddReminderModal({
       return;
     }
 
-    reset();
-    onCreated();
+    onSaved();
     onClose();
+  }
+
+  function handleDelete() {
+    if (!editingReminder) return;
+    Alert.alert(
+      "Delete reminder",
+      `Are you sure you want to delete "${editingReminder.title}"? This can't be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setIsSaving(true);
+            const { error } = await supabase
+              .from("reminders")
+              .delete()
+              .eq("id", editingReminder.id);
+            setIsSaving(false);
+
+            if (error) {
+              Alert.alert("Couldn't delete reminder", error.message);
+              return;
+            }
+
+            onSaved();
+            onClose();
+          },
+        },
+      ],
+    );
   }
 
   const canSubmit = title.trim().length > 0 && !isSaving;
@@ -128,7 +183,7 @@ export function AddReminderModal({
 
           <View style={styles.headerRow}>
             <ThemedText type="title" style={styles.title}>
-              Add Reminder
+              {editingReminder ? "Edit Reminder" : "Add Reminder"}
             </ThemedText>
             <Pressable
               onPress={handleClose}
@@ -228,6 +283,18 @@ export function AddReminderModal({
               {isSaving ? "Saving..." : "Save Reminder"}
             </ThemedText>
           </Pressable>
+
+          {editingReminder && (
+            <Pressable
+              onPress={handleDelete}
+              disabled={isSaving}
+              style={styles.deleteButton}
+            >
+              <ThemedText type="smallBold" style={styles.deleteButtonText}>
+                Delete Reminder
+              </ThemedText>
+            </Pressable>
+          )}
         </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
@@ -314,4 +381,9 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.6 },
   saveButtonText: { color: "#ffffff", fontSize: 15 },
+  deleteButton: {
+    alignItems: "center",
+    paddingVertical: Spacing.two,
+  },
+  deleteButtonText: { color: "#dc2626" },
 });

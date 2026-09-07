@@ -11,6 +11,10 @@ import {
 } from "react-native";
 
 import { ThemedText } from "@/components/themed-text";
+import {
+  CATEGORY_STYLE,
+  ReminderCategory,
+} from "@/constants/reminder-categories";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
@@ -62,15 +66,6 @@ function iconForMimeType(
 
 const DOC_COLORS = ["#10b1a3", "#0BDA51", "#3b82f6", "#8b5cf6"];
 
-const REMINDER_TYPE_STYLE: Record<
-  string,
-  { icon: keyof typeof Ionicons.glyphMap; color: string }
-> = {
-  expiration: { icon: "alert-circle-outline", color: "#dc2626" },
-  submission: { icon: "time-outline", color: "#d97706" },
-  renewal: { icon: "refresh-outline", color: "#0891b2" },
-};
-
 export default function HomeScreen() {
   const router = useRouter();
   const { session } = useAuth();
@@ -105,7 +100,7 @@ export default function HomeScreen() {
             .limit(3),
           supabase
             .from("reminders")
-            .select("id, title, type, due_date")
+            .select("id, title, category, due_date")
             .eq("user_id", session.user.id)
             .eq("status", "pending")
             .order("due_date", { ascending: true })
@@ -127,9 +122,7 @@ export default function HomeScreen() {
 
       setDocumentAlerts(
         (remindersResult.data ?? []).map((reminder) => {
-          const style =
-            REMINDER_TYPE_STYLE[reminder.type] ??
-            REMINDER_TYPE_STYLE.submission;
+          const style = CATEGORY_STYLE[reminder.category as ReminderCategory];
           return {
             id: reminder.id,
             date: formatShortDate(reminder.due_date),
@@ -245,7 +238,7 @@ export default function HomeScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <ThemedText type="smallBold" style={styles.sectionTitle}>
-                Document Alerts
+                Deadlines and Reminders
               </ThemedText>
               <Pressable onPress={() => router.push("/deadlines-reminders")}>
                 <ThemedText type="small" style={styles.sectionLink}>

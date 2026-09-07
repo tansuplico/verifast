@@ -6,7 +6,9 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   TextInput,
@@ -229,7 +231,10 @@ export function AddDocumentModal({
       transparent
       onRequestClose={handleClose}
     >
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <SafeAreaView edges={["bottom"]} style={styles.sheet}>
           <View style={styles.grabber} />
 
@@ -363,7 +368,7 @@ export function AddDocumentModal({
             )}
           </Pressable>
         </SafeAreaView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

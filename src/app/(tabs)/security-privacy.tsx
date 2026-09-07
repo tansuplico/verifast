@@ -4,6 +4,8 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -109,126 +111,146 @@ export default function SecurityPrivacyScreen() {
         </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={{
-          padding: Spacing.four,
-          paddingBottom: BottomTabInset + Spacing.four,
-          gap: Spacing.four,
-        }}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={styles.card}>
-          <ThemedText type="small" style={styles.sectionLabel}>
-            CHANGE PASSWORD
-          </ThemedText>
-
-          <View style={styles.fieldGroup}>
-            <ThemedText type="smallBold" style={styles.fieldLabel}>
-              Current Password
+        <ScrollView
+          contentContainerStyle={{
+            padding: Spacing.four,
+            paddingBottom: BottomTabInset + Spacing.four,
+            gap: Spacing.four,
+          }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.card}>
+            <ThemedText type="small" style={styles.sectionLabel}>
+              CHANGE PASSWORD
             </ThemedText>
-            <View style={styles.inputRow}>
-              <Ionicons name="lock-closed-outline" size={16} color="#a5a9b1" />
-              <TextInput
-                value={currentPassword}
-                onChangeText={setCurrentPassword}
-                placeholder="Enter current password"
-                placeholderTextColor="#a5a9b1"
-                secureTextEntry={!showCurrent}
-                style={styles.input}
-              />
-              <Pressable hitSlop={8} onPress={() => setShowCurrent((v) => !v)}>
+
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold" style={styles.fieldLabel}>
+                Current Password
+              </ThemedText>
+              <View style={styles.inputRow}>
                 <Ionicons
-                  name={showCurrent ? "eye-off-outline" : "eye-outline"}
-                  size={18}
+                  name="lock-closed-outline"
+                  size={16}
                   color="#a5a9b1"
                 />
-              </Pressable>
+                <TextInput
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  placeholder="Enter current password"
+                  placeholderTextColor="#a5a9b1"
+                  secureTextEntry={!showCurrent}
+                  style={styles.input}
+                />
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => setShowCurrent((v) => !v)}
+                >
+                  <Ionicons
+                    name={showCurrent ? "eye-off-outline" : "eye-outline"}
+                    size={18}
+                    color="#a5a9b1"
+                  />
+                </Pressable>
+              </View>
             </View>
-          </View>
 
-          <View style={styles.fieldGroup}>
-            <ThemedText type="smallBold" style={styles.fieldLabel}>
-              New Password
-            </ThemedText>
-            <View style={styles.inputRow}>
-              <Ionicons name="lock-closed-outline" size={16} color="#a5a9b1" />
-              <TextInput
-                value={newPassword}
-                onChangeText={setNewPassword}
-                placeholder="Enter new password"
-                placeholderTextColor="#a5a9b1"
-                secureTextEntry={!showNew}
-                style={styles.input}
-              />
-              <Pressable hitSlop={8} onPress={() => setShowNew((v) => !v)}>
+            <View style={styles.fieldGroup}>
+              <ThemedText type="smallBold" style={styles.fieldLabel}>
+                New Password
+              </ThemedText>
+              <View style={styles.inputRow}>
                 <Ionicons
-                  name={showNew ? "eye-off-outline" : "eye-outline"}
-                  size={18}
+                  name="lock-closed-outline"
+                  size={16}
                   color="#a5a9b1"
                 />
-              </Pressable>
+                <TextInput
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  placeholder="Enter new password"
+                  placeholderTextColor="#a5a9b1"
+                  secureTextEntry={!showNew}
+                  style={styles.input}
+                />
+                <Pressable hitSlop={8} onPress={() => setShowNew((v) => !v)}>
+                  <Ionicons
+                    name={showNew ? "eye-off-outline" : "eye-outline"}
+                    size={18}
+                    color="#a5a9b1"
+                  />
+                </Pressable>
+              </View>
             </View>
+
+            <Pressable
+              onPress={handleUpdatePassword}
+              disabled={isSubmitting}
+              style={[
+                styles.updateButton,
+                isSubmitting && styles.buttonDisabled,
+              ]}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <ThemedText type="smallBold" style={styles.updateButtonText}>
+                  Update Password
+                </ThemedText>
+              )}
+            </Pressable>
           </View>
 
-          <Pressable
-            onPress={handleUpdatePassword}
-            disabled={isSubmitting}
-            style={[styles.updateButton, isSubmitting && styles.buttonDisabled]}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color="#ffffff" />
-            ) : (
-              <ThemedText type="smallBold" style={styles.updateButtonText}>
-                Update Password
-              </ThemedText>
-            )}
-          </Pressable>
-        </View>
+          <View style={styles.card}>
+            <ThemedText type="small" style={styles.sectionLabel}>
+              PRIVACY CONTROLS
+            </ThemedText>
 
-        <View style={styles.card}>
-          <ThemedText type="small" style={styles.sectionLabel}>
-            PRIVACY CONTROLS
-          </ThemedText>
-
-          <View style={styles.controlRow}>
-            <View style={styles.controlText}>
-              <ThemedText type="smallBold" style={styles.controlTitle}>
-                Two-Factor Authentication
-              </ThemedText>
-              <ThemedText type="small" style={styles.controlSubtext}>
-                Require a code when signing in
-              </ThemedText>
-            </View>
-            <ToggleSwitch
-              value={twoFactorEnabled}
-              onValueChange={setTwoFactorEnabled}
-            />
-          </View>
-
-          <Pressable
-            onPress={() => showComingSoon("Managing connected accounts")}
-          >
-            <View style={[styles.controlRow, styles.controlRowLast]}>
+            <View style={styles.controlRow}>
               <View style={styles.controlText}>
                 <ThemedText type="smallBold" style={styles.controlTitle}>
-                  Connected Accounts
+                  Two-Factor Authentication
                 </ThemedText>
                 <ThemedText type="small" style={styles.controlSubtext}>
-                  {connectedProvider}
-                  {session?.user.email ? `: ${session.user.email}` : ""}
+                  Require a code when signing in
                 </ThemedText>
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#c4c8d1" />
+              <ToggleSwitch
+                value={twoFactorEnabled}
+                onValueChange={setTwoFactorEnabled}
+              />
             </View>
-          </Pressable>
-        </View>
-      </ScrollView>
+
+            <Pressable
+              onPress={() => showComingSoon("Managing connected accounts")}
+            >
+              <View style={[styles.controlRow, styles.controlRowLast]}>
+                <View style={styles.controlText}>
+                  <ThemedText type="smallBold" style={styles.controlTitle}>
+                    Connected Accounts
+                  </ThemedText>
+                  <ThemedText type="small" style={styles.controlSubtext}>
+                    {connectedProvider}
+                    {session?.user.email ? `: ${session.user.email}` : ""}
+                  </ThemedText>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#c4c8d1" />
+              </View>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: { flex: 1 },
   container: { flex: 1, backgroundColor: "#f7f8fa" },
   header: {
     flexDirection: "row",

@@ -3,7 +3,9 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   TextInput,
@@ -117,7 +119,10 @@ export function AddReminderModal({
       transparent
       onRequestClose={handleClose}
     >
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <SafeAreaView edges={["bottom"]} style={styles.sheet}>
           <View style={styles.grabber} />
 
@@ -224,7 +229,7 @@ export function AddReminderModal({
             </ThemedText>
           </Pressable>
         </SafeAreaView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

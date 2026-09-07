@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +20,7 @@ import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
+import { KeyboardAvoidingView } from "react-native";
 
 type ProfileRow = {
   full_name: string | null;
@@ -206,106 +208,115 @@ export default function EditProfileScreen() {
         </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={{
-          padding: Spacing.four,
-          paddingBottom: BottomTabInset + Spacing.four,
-          gap: Spacing.four,
-        }}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        {isLoading ? (
-          <ActivityIndicator
-            color="#0d9488"
-            style={{ marginTop: Spacing.four }}
-          />
-        ) : (
-          <>
-            <View style={styles.avatarSection}>
-              <Pressable onPress={handleChangePhoto}>
-                {avatarSource ? (
-                  <Image source={{ uri: avatarSource }} style={styles.avatar} />
-                ) : (
-                  <View style={styles.avatarFallback}>
-                    <ThemedText style={styles.avatarInitials}>
-                      {getInitials(fullName, session?.user.email)}
-                    </ThemedText>
+        <ScrollView
+          contentContainerStyle={{
+            padding: Spacing.four,
+            paddingBottom: BottomTabInset + Spacing.four,
+            gap: Spacing.four,
+          }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {isLoading ? (
+            <ActivityIndicator
+              color="#0d9488"
+              style={{ marginTop: Spacing.four }}
+            />
+          ) : (
+            <>
+              <View style={styles.avatarSection}>
+                <Pressable onPress={handleChangePhoto}>
+                  {avatarSource ? (
+                    <Image
+                      source={{ uri: avatarSource }}
+                      style={styles.avatar}
+                    />
+                  ) : (
+                    <View style={styles.avatarFallback}>
+                      <ThemedText style={styles.avatarInitials}>
+                        {getInitials(fullName, session?.user.email)}
+                      </ThemedText>
+                    </View>
+                  )}
+                  <View style={styles.cameraBadge}>
+                    <Ionicons name="camera" size={14} color="#ffffff" />
                   </View>
-                )}
-                <View style={styles.cameraBadge}>
-                  <Ionicons name="camera" size={14} color="#ffffff" />
+                </Pressable>
+                <Pressable onPress={handleChangePhoto}>
+                  <ThemedText type="link" style={styles.changePhotoText}>
+                    Change Photo
+                  </ThemedText>
+                </Pressable>
+              </View>
+
+              <View style={styles.card}>
+                <View style={styles.fieldGroup}>
+                  <ThemedText type="smallBold" style={styles.fieldLabel}>
+                    Full Name
+                  </ThemedText>
+                  <TextInput
+                    value={fullName}
+                    onChangeText={setFullName}
+                    placeholder="Enter your full name"
+                    placeholderTextColor="#a5a9b1"
+                    style={styles.input}
+                  />
                 </View>
+
+                <View style={styles.fieldGroup}>
+                  <ThemedText type="smallBold" style={styles.fieldLabel}>
+                    Student ID
+                  </ThemedText>
+                  <TextInput
+                    value={studentId}
+                    onChangeText={setStudentId}
+                    placeholder="e.g. 2023-12345"
+                    placeholderTextColor="#a5a9b1"
+                    style={styles.input}
+                  />
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <ThemedText type="smallBold" style={styles.fieldLabel}>
+                    Program
+                  </ThemedText>
+                  <TextInput
+                    value={program}
+                    onChangeText={setProgram}
+                    placeholder="e.g. BS Information Technology"
+                    placeholderTextColor="#a5a9b1"
+                    style={styles.input}
+                  />
+                </View>
+              </View>
+
+              <Pressable
+                onPress={handleSave}
+                disabled={isSaving}
+                style={[styles.saveButton, isSaving && styles.buttonDisabled]}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <ThemedText type="smallBold" style={styles.saveButtonText}>
+                    Save Changes
+                  </ThemedText>
+                )}
               </Pressable>
-              <Pressable onPress={handleChangePhoto}>
-                <ThemedText type="link" style={styles.changePhotoText}>
-                  Change Photo
-                </ThemedText>
-              </Pressable>
-            </View>
-
-            <View style={styles.card}>
-              <View style={styles.fieldGroup}>
-                <ThemedText type="smallBold" style={styles.fieldLabel}>
-                  Full Name
-                </ThemedText>
-                <TextInput
-                  value={fullName}
-                  onChangeText={setFullName}
-                  placeholder="Enter your full name"
-                  placeholderTextColor="#a5a9b1"
-                  style={styles.input}
-                />
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <ThemedText type="smallBold" style={styles.fieldLabel}>
-                  Student ID
-                </ThemedText>
-                <TextInput
-                  value={studentId}
-                  onChangeText={setStudentId}
-                  placeholder="e.g. 2023-12345"
-                  placeholderTextColor="#a5a9b1"
-                  style={styles.input}
-                />
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <ThemedText type="smallBold" style={styles.fieldLabel}>
-                  Program
-                </ThemedText>
-                <TextInput
-                  value={program}
-                  onChangeText={setProgram}
-                  placeholder="e.g. BS Information Technology"
-                  placeholderTextColor="#a5a9b1"
-                  style={styles.input}
-                />
-              </View>
-            </View>
-
-            <Pressable
-              onPress={handleSave}
-              disabled={isSaving}
-              style={[styles.saveButton, isSaving && styles.buttonDisabled]}
-            >
-              {isSaving ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <ThemedText type="smallBold" style={styles.saveButtonText}>
-                  Save Changes
-                </ThemedText>
-              )}
-            </Pressable>
-          </>
-        )}
-      </ScrollView>
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: { flex: 1 },
   container: { flex: 1, backgroundColor: "#f7f8fa" },
   header: {
     flexDirection: "row",

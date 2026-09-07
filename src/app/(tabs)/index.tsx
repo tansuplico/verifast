@@ -170,15 +170,6 @@ export default function HomeScreen() {
                 {displayName}
               </ThemedText>
             </View>
-
-            <Pressable style={styles.bellButton}>
-              <Ionicons
-                name="notifications-outline"
-                size={20}
-                color="#ffffff"
-              />
-              <View style={styles.bellDot} />
-            </Pressable>
           </View>
 
           <View style={styles.storageCard}>
@@ -297,8 +288,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.four,
-    borderBottomLeftRadius: Spacing.four,
-    borderBottomRightRadius: Spacing.four,
+    paddingTop: Spacing.four,
   },
   headerTopRow: {
     flexDirection: "row",

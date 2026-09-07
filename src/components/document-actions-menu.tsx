@@ -23,10 +23,23 @@ type DocumentActionsMenuProps = {
   onClose: () => void;
   onRenamed: () => void;
   onMoved: () => void;
+  onColorChanged: () => void;
   onDeleteRequested: (doc: DocumentRow) => void;
 };
 
-type Mode = "menu" | "rename" | "move";
+type Mode = "menu" | "rename" | "move" | "color";
+
+// Fixed preset swatches - not a full color wheel, since the point is quick
+// visual categorization, not exact brand-matching. Null (no selection)
+// falls back to the existing DOC_COLORS cycling behavior in documents.tsx.
+const ICON_COLOR_OPTIONS = [
+  "#FF0800",
+  "#6F00FF",
+  "#007FFF",
+  "#03C03C",
+  "#FF4F00",
+  "#0d9488",
+];
 
 export function DocumentActionsMenu({
   visible,
@@ -35,6 +48,7 @@ export function DocumentActionsMenu({
   onClose,
   onRenamed,
   onMoved,
+  onColorChanged,
   onDeleteRequested,
 }: DocumentActionsMenuProps) {
   const [mode, setMode] = useState<Mode>("menu");
@@ -112,6 +126,34 @@ export function DocumentActionsMenu({
     onClose();
   }
 
+  async function handleColorSelect(color: string) {
+    if (!document) return;
+    setIsSaving(true);
+
+    const { data, error } = await supabase
+      .from("documents")
+      .update({ icon_color: color })
+      .eq("id", document.id)
+      .select();
+
+    setIsSaving(false);
+
+    if (error) {
+      Alert.alert("Couldn't update icon color", error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      Alert.alert(
+        "Couldn't update icon color",
+        "The document wasn't updated — this usually means the update was blocked by a database permission (RLS) rule.",
+      );
+      return;
+    }
+
+    onColorChanged();
+    onClose();
+  }
+
   if (!document) return null;
 
   return (
@@ -166,6 +208,20 @@ export function DocumentActionsMenu({
                   <Ionicons name="folder-outline" size={18} color="#1a1c20" />
                   <ThemedText type="small" style={styles.actionLabel}>
                     Move
+                  </ThemedText>
+                </Pressable>
+
+                <Pressable
+                  style={styles.actionRow}
+                  onPress={() => setMode("color")}
+                >
+                  <Ionicons
+                    name="color-palette-outline"
+                    size={18}
+                    color="#1a1c20"
+                  />
+                  <ThemedText type="small" style={styles.actionLabel}>
+                    Icon Color
                   </ThemedText>
                 </Pressable>
 
@@ -283,6 +339,53 @@ export function DocumentActionsMenu({
                 })}
               </>
             )}
+
+            {mode === "color" && (
+              <>
+                <View style={styles.headerRow}>
+                  <Pressable hitSlop={8} onPress={() => setMode("menu")}>
+                    <Ionicons name="chevron-back" size={20} color="#1a1c20" />
+                  </Pressable>
+                  <ThemedText type="smallBold" style={styles.headerTitle}>
+                    Icon Color
+                  </ThemedText>
+                  <View style={styles.headerSpacer} />
+                  <Pressable
+                    onPress={handleClose}
+                    style={styles.closeButton}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="close" size={18} color="#60646C" />
+                  </Pressable>
+                </View>
+
+                <View style={styles.colorSwatchRow}>
+                  {ICON_COLOR_OPTIONS.map((color) => {
+                    const isSelected = document.icon_color === color;
+                    return (
+                      <Pressable
+                        key={color}
+                        onPress={() => handleColorSelect(color)}
+                        disabled={isSaving}
+                        style={[
+                          styles.colorSwatch,
+                          { backgroundColor: color },
+                          isSelected && styles.colorSwatchSelected,
+                        ]}
+                      >
+                        {isSelected && (
+                          <Ionicons
+                            name="checkmark"
+                            size={18}
+                            color="#ffffff"
+                          />
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
           </SafeAreaView>
         </Pressable>
       </Pressable>
@@ -363,4 +466,21 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.6 },
   saveButtonText: { color: "#ffffff", fontSize: 15 },
+  colorSwatchRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  colorSwatch: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  colorSwatchSelected: {
+    borderWidth: 3,
+    borderColor: "#1a1c20",
+  },
 });

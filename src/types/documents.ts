@@ -6,4 +6,5 @@ export type DocumentRow = {
   mime_type: string | null;
   file_size: number | null;
   created_at: string;
+  icon_color: string | null;
 };

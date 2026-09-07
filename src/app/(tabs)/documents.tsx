@@ -119,7 +119,7 @@ export default function DocumentsScreen() {
         supabase
           .from("documents")
           .select(
-            "id, folder_id, name, file_path, mime_type, file_size, created_at",
+            "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color",
           )
           .eq("user_id", session.user.id)
           .order("created_at", { ascending: false }),
@@ -366,7 +366,10 @@ export default function DocumentsScreen() {
               <View
                 style={[
                   styles.fileIconBadge,
-                  { backgroundColor: DOC_COLORS[index % DOC_COLORS.length] },
+                  {
+                    backgroundColor:
+                      doc.icon_color ?? DOC_COLORS[index % DOC_COLORS.length],
+                  },
                 ]}
               >
                 <Ionicons
@@ -409,7 +412,9 @@ export default function DocumentsScreen() {
                     style={[
                       styles.fileGridIconBadge,
                       {
-                        backgroundColor: DOC_COLORS[index % DOC_COLORS.length],
+                        backgroundColor:
+                          doc.icon_color ??
+                          DOC_COLORS[index % DOC_COLORS.length],
                       },
                     ]}
                   >
@@ -480,6 +485,7 @@ export default function DocumentsScreen() {
         onClose={() => setActionsDoc(null)}
         onRenamed={() => loadDocuments()}
         onMoved={() => loadDocuments()}
+        onColorChanged={() => loadDocuments()} // NEW
         onDeleteRequested={handleDeleteDocument}
       />
     </SafeAreaView>

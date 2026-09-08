@@ -14,11 +14,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AddRequestModal } from "@/components/add-request-modal";
 import { RequestActionsMenu } from "@/components/request-actions-menu";
 import { ThemedText } from "@/components/themed-text";
+import {
+  iconForRequestType,
+  NEXT_STATUS,
+  REQUEST_COLORS,
+  RequestStatus,
+  STATUS_STYLE,
+} from "@/constants/request-status";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
-
-type RequestStatus = "requested" | "processing" | "ready" | "released";
 
 type RequestRow = {
   id: string;
@@ -28,74 +33,6 @@ type RequestRow = {
   requested_date: string;
   released_date: string | null;
 };
-
-// "released" is the DB/status-machine name (matches document_requests'
-// status column and NEXT_STATUS below) but the mockup calls the terminal
-// state "Received" - that's a display-only relabel, not a schema change.
-const STATUS_STYLE: Record<
-  RequestStatus,
-  {
-    label: string;
-    color: string;
-    background: string;
-    icon: keyof typeof Ionicons.glyphMap;
-  }
-> = {
-  requested: {
-    label: "Requested",
-    color: "#6b7280",
-    background: "#f0f0f3",
-    icon: "time-outline",
-  },
-  processing: {
-    label: "Processing",
-    color: "#d97706",
-    background: "#fef3e2",
-    icon: "sync-outline",
-  },
-  ready: {
-    label: "Ready",
-    color: "#059669",
-    background: "#e3f9ee",
-    icon: "cube-outline",
-  },
-  released: {
-    label: "Received",
-    color: "#0d9488",
-    background: "#e0f5f1",
-    icon: "checkmark-circle-outline",
-  },
-};
-
-// Tap-to-advance: each request has one obvious "next step". `released` is
-// terminal - no further advance action is offered for it.
-const NEXT_STATUS: Record<RequestStatus, RequestStatus | null> = {
-  requested: "processing",
-  processing: "ready",
-  ready: "released",
-  released: null,
-};
-
-// document_requests has no icon/color column of its own, so - same as the
-// Documents grid before its per-document color override was added - each
-// request's badge color just cycles through a fixed palette by position.
-const REQUEST_COLORS = ["#6366f1", "#8b5cf6", "#10b981", "#f59e0b", "#3b82f6"];
-
-// Best-effort icon guess from the free-text document_type field, since
-// there's no category column to key off of. Falls back to a generic
-// document icon for anything that doesn't match a known keyword.
-function iconForRequestType(
-  documentType: string,
-): keyof typeof Ionicons.glyphMap {
-  const type = documentType.toLowerCase();
-  if (type.includes("transcript") || type.includes("grade")) {
-    return "book-outline";
-  }
-  if (type.includes("enrollment")) return "clipboard-outline";
-  if (type.includes("diploma")) return "ribbon-outline";
-  if (type.includes(" id") || type.startsWith("id")) return "card-outline";
-  return "document-text-outline";
-}
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleDateString("en-US", {

@@ -15,6 +15,12 @@ import {
   CATEGORY_STYLE,
   ReminderCategory,
 } from "@/constants/reminder-categories";
+import {
+  iconForRequestType,
+  REQUEST_COLORS,
+  RequestStatus,
+  STATUS_STYLE,
+} from "@/constants/request-status";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
@@ -39,6 +45,18 @@ type DocumentAlert = {
   text: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
+};
+
+type RequestPreview = {
+  id: string;
+  title: string;
+  office: string | null;
+  icon: keyof typeof Ionicons.glyphMap;
+  badgeColor: string;
+  statusLabel: string;
+  statusColor: string;
+  statusBackground: string;
+  statusIcon: keyof typeof Ionicons.glyphMap;
 };
 
 function getGreeting() {
@@ -75,37 +93,49 @@ export default function HomeScreen() {
   const [documentsCount, setDocumentsCount] = useState(0);
   const [recentDocuments, setRecentDocuments] = useState<RecentDocument[]>([]);
   const [documentAlerts, setDocumentAlerts] = useState<DocumentAlert[]>([]);
+  const [requestPreviews, setRequestPreviews] = useState<RequestPreview[]>([]);
 
   const loadHomeData = useCallback(
     async (isRefresh = false) => {
       if (!session) return;
       isRefresh ? setIsRefreshing(true) : setIsLoading(true);
 
-      const [profileResult, countResult, recentResult, remindersResult] =
-        await Promise.all([
-          supabase
-            .from("profiles")
-            .select("full_name")
-            .eq("id", session.user.id)
-            .single(),
-          supabase
-            .from("documents")
-            .select("*", { count: "exact", head: true })
-            .eq("user_id", session.user.id),
-          supabase
-            .from("documents")
-            .select("id, name, mime_type, updated_at")
-            .eq("user_id", session.user.id)
-            .order("updated_at", { ascending: false })
-            .limit(3),
-          supabase
-            .from("reminders")
-            .select("id, title, category, due_date")
-            .eq("user_id", session.user.id)
-            .eq("status", "pending")
-            .order("due_date", { ascending: true })
-            .limit(3),
-        ]);
+      const [
+        profileResult,
+        countResult,
+        recentResult,
+        remindersResult,
+        requestsResult,
+      ] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("full_name")
+          .eq("id", session.user.id)
+          .single(),
+        supabase
+          .from("documents")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", session.user.id),
+        supabase
+          .from("documents")
+          .select("id, name, mime_type, updated_at")
+          .eq("user_id", session.user.id)
+          .order("updated_at", { ascending: false })
+          .limit(3),
+        supabase
+          .from("reminders")
+          .select("id, title, category, due_date")
+          .eq("user_id", session.user.id)
+          .eq("status", "pending")
+          .order("due_date", { ascending: true })
+          .limit(3),
+        supabase
+          .from("document_requests")
+          .select("id, document_type, office, status")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false })
+          .limit(3),
+      ]);
 
       setFullName(profileResult.data?.full_name ?? null);
       setDocumentsCount(countResult.count ?? 0);
@@ -129,6 +159,23 @@ export default function HomeScreen() {
             text: reminder.title,
             icon: style.icon,
             color: style.color,
+          };
+        }),
+      );
+
+      setRequestPreviews(
+        (requestsResult.data ?? []).map((request, index) => {
+          const statusStyle = STATUS_STYLE[request.status as RequestStatus];
+          return {
+            id: request.id,
+            title: request.document_type,
+            office: request.office,
+            icon: iconForRequestType(request.document_type),
+            badgeColor: REQUEST_COLORS[index % REQUEST_COLORS.length],
+            statusLabel: statusStyle.label,
+            statusColor: statusStyle.color,
+            statusBackground: statusStyle.background,
+            statusIcon: statusStyle.icon,
           };
         }),
       );
@@ -270,12 +317,74 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.section}>
-            <ThemedText type="smallBold" style={styles.sectionTitle}>
-              Recent Activity
-            </ThemedText>
-            <ThemedText type="small" style={styles.emptyText}>
-              No recent activity yet
-            </ThemedText>
+            <View style={styles.sectionHeaderRow}>
+              <ThemedText type="smallBold" style={styles.sectionTitle}>
+                Requested Docs
+              </ThemedText>
+              <Pressable onPress={() => router.push("/requested-docs")}>
+                <ThemedText type="small" style={styles.sectionLink}>
+                  See all ›
+                </ThemedText>
+              </Pressable>
+            </View>
+
+            {!isLoading && requestPreviews.length === 0 && (
+              <ThemedText type="small" style={styles.emptyText}>
+                No document requests yet
+              </ThemedText>
+            )}
+
+            {requestPreviews.map((request) => (
+              <Pressable
+                key={request.id}
+                style={styles.docRow}
+                onPress={() => router.push("/requested-docs")}
+              >
+                <View
+                  style={[
+                    styles.docIconBadge,
+                    { backgroundColor: request.badgeColor },
+                  ]}
+                >
+                  <Ionicons name={request.icon} size={18} color="#ffffff" />
+                </View>
+                <View style={styles.docTextGroup}>
+                  <ThemedText
+                    type="smallBold"
+                    style={styles.docTitle}
+                    numberOfLines={1}
+                  >
+                    {request.title}
+                  </ThemedText>
+                  {request.office && (
+                    <ThemedText type="small" style={styles.docSubtitle}>
+                      {request.office}
+                    </ThemedText>
+                  )}
+                </View>
+                <View
+                  style={[
+                    styles.requestStatusPill,
+                    { backgroundColor: request.statusBackground },
+                  ]}
+                >
+                  <Ionicons
+                    name={request.statusIcon}
+                    size={11}
+                    color={request.statusColor}
+                  />
+                  <ThemedText
+                    type="small"
+                    style={[
+                      styles.requestStatusPillText,
+                      { color: request.statusColor },
+                    ]}
+                  >
+                    {request.statusLabel}
+                  </ThemedText>
+                </View>
+              </Pressable>
+            ))}
           </View>
         </View>
       </ScrollView>
@@ -377,5 +486,14 @@ const styles = StyleSheet.create({
   alertTextGroup: { flex: 1, gap: 2 },
   alertDate: { fontWeight: "700" },
   alertText: { color: "#3a3f4b" },
+  requestStatusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: Spacing.four,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 3,
+  },
+  requestStatusPillText: { fontWeight: "600", fontSize: 12 },
   emptyText: { color: "#8b8f99" },
 });

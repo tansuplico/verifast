@@ -31,13 +31,11 @@ export function AddRequestModal({
 }: AddRequestModalProps) {
   const [documentType, setDocumentType] = useState("");
   const [office, setOffice] = useState("");
-  const [notes, setNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   function reset() {
     setDocumentType("");
     setOffice("");
-    setNotes("");
     setIsSaving(false);
   }
 
@@ -55,7 +53,6 @@ export function AddRequestModal({
       user_id: userId,
       document_type: documentType.trim(),
       office: office.trim() || null,
-      notes: notes.trim() || null,
     });
 
     setIsSaving(false);
@@ -121,18 +118,6 @@ export function AddRequestModal({
             style={styles.textInput}
           />
 
-          <ThemedText type="small" style={styles.fieldLabel}>
-            Notes (optional)
-          </ThemedText>
-          <TextInput
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="e.g. Need 3 copies for scholarship application"
-            placeholderTextColor="#8b8f99"
-            style={[styles.textInput, styles.textArea]}
-            multiline
-          />
-
           <Pressable
             onPress={handleSave}
             disabled={!canSubmit}
@@ -194,7 +179,6 @@ const styles = StyleSheet.create({
     color: "#1a1c20",
     marginTop: Spacing.one,
   },
-  textArea: { height: 80, paddingTop: Spacing.two, textAlignVertical: "top" },
   saveButton: {
     backgroundColor: "#0d9488",
     borderRadius: Spacing.three,

@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AddRequestModal } from "@/components/add-request-modal";
+import { RequestActionsMenu } from "@/components/request-actions-menu";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
@@ -26,24 +27,75 @@ type RequestRow = {
   status: RequestStatus;
   requested_date: string;
   released_date: string | null;
-  notes: string | null;
 };
 
-const STATUS_STYLE: Record<RequestStatus, { label: string; color: string }> = {
-  requested: { label: "Requested", color: "#3b82f6" },
-  processing: { label: "Processing", color: "#f59e0b" },
-  ready: { label: "Ready", color: "#10b981" },
-  released: { label: "Released", color: "#8b8f99" },
+// "released" is the DB/status-machine name (matches document_requests'
+// status column and NEXT_STATUS below) but the mockup calls the terminal
+// state "Received" - that's a display-only relabel, not a schema change.
+const STATUS_STYLE: Record<
+  RequestStatus,
+  {
+    label: string;
+    color: string;
+    background: string;
+    icon: keyof typeof Ionicons.glyphMap;
+  }
+> = {
+  requested: {
+    label: "Requested",
+    color: "#6b7280",
+    background: "#f0f0f3",
+    icon: "time-outline",
+  },
+  processing: {
+    label: "Processing",
+    color: "#d97706",
+    background: "#fef3e2",
+    icon: "sync-outline",
+  },
+  ready: {
+    label: "Ready",
+    color: "#059669",
+    background: "#e3f9ee",
+    icon: "cube-outline",
+  },
+  released: {
+    label: "Received",
+    color: "#0d9488",
+    background: "#e0f5f1",
+    icon: "checkmark-circle-outline",
+  },
 };
 
-// Tap-to-advance: each status's card shows a single button that moves it to
-// the next step. `released` is terminal - no further button is shown.
+// Tap-to-advance: each request has one obvious "next step". `released` is
+// terminal - no further advance action is offered for it.
 const NEXT_STATUS: Record<RequestStatus, RequestStatus | null> = {
   requested: "processing",
   processing: "ready",
   ready: "released",
   released: null,
 };
+
+// document_requests has no icon/color column of its own, so - same as the
+// Documents grid before its per-document color override was added - each
+// request's badge color just cycles through a fixed palette by position.
+const REQUEST_COLORS = ["#6366f1", "#8b5cf6", "#10b981", "#f59e0b", "#3b82f6"];
+
+// Best-effort icon guess from the free-text document_type field, since
+// there's no category column to key off of. Falls back to a generic
+// document icon for anything that doesn't match a known keyword.
+function iconForRequestType(
+  documentType: string,
+): keyof typeof Ionicons.glyphMap {
+  const type = documentType.toLowerCase();
+  if (type.includes("transcript") || type.includes("grade")) {
+    return "book-outline";
+  }
+  if (type.includes("enrollment")) return "clipboard-outline";
+  if (type.includes("diploma")) return "ribbon-outline";
+  if (type.includes(" id") || type.startsWith("id")) return "card-outline";
+  return "document-text-outline";
+}
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleDateString("en-US", {
@@ -60,6 +112,7 @@ export default function RequestedDocsScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [actionsRequest, setActionsRequest] = useState<RequestRow | null>(null);
 
   const loadRequests = useCallback(
     async (isRefresh = false) => {
@@ -69,7 +122,7 @@ export default function RequestedDocsScreen() {
       const { data } = await supabase
         .from("document_requests")
         .select(
-          "id, document_type, office, status, requested_date, released_date, notes",
+          "id, document_type, office, status, requested_date, released_date",
         )
         .eq("user_id", session.user.id)
         .order("created_at", { ascending: false });
@@ -166,6 +219,11 @@ export default function RequestedDocsScreen() {
     [loadRequests],
   );
 
+  const readyCount = requests.filter((r) => r.status === "ready").length;
+  const actionsNextStatus = actionsRequest
+    ? NEXT_STATUS[actionsRequest.status]
+    : null;
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
@@ -177,12 +235,9 @@ export default function RequestedDocsScreen() {
           <Ionicons name="close" size={20} color="#1a1c20" />
         </Pressable>
         <ThemedText type="smallBold" style={styles.headerTitle}>
-          Requested Docs
+          Document Requests
         </ThemedText>
         <View style={styles.headerSpacer} />
-        <View style={styles.receiptBadge}>
-          <Ionicons name="receipt-outline" size={16} color="#0d9488" />
-        </View>
       </View>
 
       <ScrollView
@@ -198,82 +253,128 @@ export default function RequestedDocsScreen() {
           />
         }
       >
+        {readyCount > 0 && (
+          <View style={styles.readyBanner}>
+            <Ionicons name="cube-outline" size={16} color="#059669" />
+            <ThemedText type="small" style={styles.readyBannerText}>
+              {readyCount} document{readyCount > 1 ? "s are" : " is"} ready for
+              pickup.
+            </ThemedText>
+          </View>
+        )}
+
+        <ThemedText type="small" style={styles.sectionLabel}>
+          ALL REQUESTS
+        </ThemedText>
+
         {!isLoading && requests.length === 0 && (
           <ThemedText type="small" style={styles.emptyText}>
-            No document requests yet. Tap + to log one you've requested from a
-            school office.
+            No document requests yet. Tap the button below to log one you've
+            requested from a school office.
           </ThemedText>
         )}
 
-        {requests.map((request) => {
-          const statusStyle = STATUS_STYLE[request.status];
-          const nextStatus = NEXT_STATUS[request.status];
-          return (
-            <View key={request.id} style={styles.card}>
-              <View style={styles.cardTopRow}>
-                <View style={styles.cardTextGroup}>
-                  <ThemedText type="smallBold" style={styles.cardTitle}>
-                    {request.document_type}
-                  </ThemedText>
-                  {request.office && (
-                    <ThemedText type="small" style={styles.cardSubtext}>
-                      {request.office}
-                    </ThemedText>
-                  )}
-                </View>
-                <Pressable hitSlop={8} onPress={() => handleDelete(request)}>
-                  <Ionicons name="trash-outline" size={16} color="#c4c8d1" />
-                </Pressable>
-              </View>
-
-              <View style={styles.cardMetaRow}>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    { backgroundColor: statusStyle.color },
-                  ]}
-                >
-                  <ThemedText type="small" style={styles.statusBadgeText}>
-                    {statusStyle.label}
-                  </ThemedText>
-                </View>
-                <ThemedText type="small" style={styles.cardSubtext}>
-                  {request.status === "released" && request.released_date
-                    ? `Released ${formatDate(request.released_date)}`
-                    : `Requested ${formatDate(request.requested_date)}`}
-                </ThemedText>
-              </View>
-
-              {request.notes && (
-                <ThemedText type="small" style={styles.cardNotes}>
-                  {request.notes}
-                </ThemedText>
-              )}
-
-              {nextStatus && (
+        {requests.length > 0 && (
+          <View style={styles.listCard}>
+            {requests.map((request, index) => {
+              const statusStyle = STATUS_STYLE[request.status];
+              const badgeColor = REQUEST_COLORS[index % REQUEST_COLORS.length];
+              return (
                 <Pressable
-                  style={styles.advanceButton}
-                  onPress={() => handleAdvance(request)}
+                  key={request.id}
+                  style={[
+                    styles.row,
+                    index < requests.length - 1 && styles.rowDivider,
+                  ]}
+                  onPress={() => setActionsRequest(request)}
                 >
-                  <ThemedText type="smallBold" style={styles.advanceButtonText}>
-                    Mark as {STATUS_STYLE[nextStatus].label}
-                  </ThemedText>
-                </Pressable>
-              )}
-            </View>
-          );
-        })}
-      </ScrollView>
+                  <View
+                    style={[styles.iconBadge, { backgroundColor: badgeColor }]}
+                  >
+                    <Ionicons
+                      name={iconForRequestType(request.document_type)}
+                      size={20}
+                      color="#ffffff"
+                    />
+                  </View>
 
-      <Pressable style={styles.fab} onPress={() => setIsAddModalVisible(true)}>
-        <Ionicons name="add" size={26} color="#ffffff" />
-      </Pressable>
+                  <View style={styles.rowTextGroup}>
+                    <ThemedText
+                      type="smallBold"
+                      style={styles.rowTitle}
+                      numberOfLines={2}
+                    >
+                      {request.document_type}
+                    </ThemedText>
+                    {request.office && (
+                      <ThemedText type="small" style={styles.rowSubtext}>
+                        {request.office}
+                      </ThemedText>
+                    )}
+                    <ThemedText type="small" style={styles.rowSubtext}>
+                      {request.status === "released" && request.released_date
+                        ? formatDate(request.released_date)
+                        : formatDate(request.requested_date)}
+                    </ThemedText>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.statusPill,
+                      { backgroundColor: statusStyle.background },
+                    ]}
+                  >
+                    <Ionicons
+                      name={statusStyle.icon}
+                      size={12}
+                      color={statusStyle.color}
+                    />
+                    <ThemedText
+                      type="small"
+                      style={[
+                        styles.statusPillText,
+                        { color: statusStyle.color },
+                      ]}
+                    >
+                      {statusStyle.label}
+                    </ThemedText>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
+        <Pressable
+          style={styles.newRequestButton}
+          onPress={() => setIsAddModalVisible(true)}
+        >
+          <ThemedText type="smallBold" style={styles.newRequestButtonText}>
+            Request New Document
+          </ThemedText>
+        </Pressable>
+      </ScrollView>
 
       <AddRequestModal
         visible={isAddModalVisible}
         onClose={() => setIsAddModalVisible(false)}
         userId={session?.user.id}
         onCreated={() => loadRequests()}
+      />
+
+      <RequestActionsMenu
+        visible={!!actionsRequest}
+        title={actionsRequest?.document_type ?? ""}
+        nextStatusLabel={
+          actionsNextStatus ? STATUS_STYLE[actionsNextStatus].label : null
+        }
+        onClose={() => setActionsRequest(null)}
+        onAdvance={() => {
+          if (actionsRequest) handleAdvance(actionsRequest);
+        }}
+        onDelete={() => {
+          if (actionsRequest) handleDelete(actionsRequest);
+        }}
       />
     </SafeAreaView>
   );
@@ -300,60 +401,63 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: "#1a1c20", fontSize: 16, marginLeft: Spacing.three },
   headerSpacer: { flex: 1 },
-  receiptBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#e0f5f1",
+  readyBanner: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: Spacing.two,
+    backgroundColor: "#e3f9ee",
+    borderRadius: Spacing.two + 2,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two + 2,
+    marginBottom: Spacing.four,
+  },
+  readyBannerText: { color: "#059669", flex: 1 },
+  sectionLabel: {
+    color: "#8b8f99",
+    letterSpacing: 0.5,
+    marginBottom: Spacing.two,
   },
   emptyText: { color: "#8b8f99", textAlign: "center", marginTop: Spacing.six },
-  card: {
+  listCard: {
     backgroundColor: "#ffffff",
     borderRadius: Spacing.three,
-    padding: Spacing.three,
-    marginBottom: Spacing.three,
-    gap: Spacing.two,
+    marginBottom: Spacing.four,
   },
-  cardTopRow: {
+  row: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "flex-start",
+    gap: Spacing.three,
+    padding: Spacing.three,
   },
-  cardTextGroup: { flex: 1, gap: 2 },
-  cardTitle: { color: "#1a1c20" },
-  cardSubtext: { color: "#8b8f99" },
-  cardMetaRow: { flexDirection: "row", alignItems: "center", gap: Spacing.two },
-  statusBadge: {
-    borderRadius: Spacing.two,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 4,
+  rowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#eceef1",
   },
-  statusBadgeText: { color: "#ffffff", fontWeight: "600" },
-  cardNotes: { color: "#60646C" },
-  advanceButton: {
-    backgroundColor: "#f0f0f3",
+  iconBadge: {
+    width: 44,
+    height: 44,
     borderRadius: Spacing.two + 2,
-    paddingVertical: Spacing.two,
-    alignItems: "center",
-    marginTop: Spacing.one,
-  },
-  advanceButtonText: { color: "#0d9488" },
-  fab: {
-    position: "absolute",
-    right: Spacing.four,
-    bottom: BottomTabInset + Spacing.three,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#0d9488",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
   },
+  rowTextGroup: { flex: 1, gap: 2 },
+  rowTitle: { color: "#1a1c20" },
+  rowSubtext: { color: "#8b8f99" },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: Spacing.four,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 4,
+    marginTop: 2,
+  },
+  statusPillText: { fontWeight: "600" },
+  newRequestButton: {
+    backgroundColor: "#0d9488",
+    borderRadius: Spacing.two + 2,
+    paddingVertical: Spacing.three + 2,
+    alignItems: "center",
+  },
+  newRequestButtonText: { color: "#ffffff", fontSize: 15 },
 });

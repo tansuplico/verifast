@@ -3,14 +3,13 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   Pressable,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
@@ -157,263 +156,202 @@ export function DocumentActionsMenu({
   if (!document) return null;
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={handleClose}
-    >
-      {/* Tapping the backdrop closes the sheet. The inner Pressable below
-          has its own no-op onPress, which claims the touch responder for
-          taps inside the sheet so they don't bubble up and also trigger
-          this close. */}
-      <Pressable style={styles.backdrop} onPress={handleClose}>
-        <Pressable onPress={() => {}}>
-          <SafeAreaView edges={["bottom"]} style={styles.sheet}>
-            <View style={styles.grabber} />
+    <BottomSheet visible={visible} onClose={handleClose}>
+      {mode === "menu" && (
+        <>
+          <View style={styles.menuHeaderRow}>
+            <ThemedText
+              type="smallBold"
+              style={styles.docName}
+              numberOfLines={1}
+            >
+              {document.name}
+            </ThemedText>
+            <Pressable
+              onPress={handleClose}
+              style={styles.closeButton}
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={18} color="#60646C" />
+            </Pressable>
+          </View>
 
-            {mode === "menu" && (
-              <>
-                <View style={styles.menuHeaderRow}>
-                  <ThemedText
-                    type="smallBold"
-                    style={styles.docName}
-                    numberOfLines={1}
-                  >
-                    {document.name}
-                  </ThemedText>
-                  <Pressable
-                    onPress={handleClose}
-                    style={styles.closeButton}
-                    hitSlop={8}
-                  >
-                    <Ionicons name="close" size={18} color="#60646C" />
-                  </Pressable>
-                </View>
+          <Pressable style={styles.actionRow} onPress={() => setMode("rename")}>
+            <Ionicons name="pencil-outline" size={18} color="#1a1c20" />
+            <ThemedText type="small" style={styles.actionLabel}>
+              Rename
+            </ThemedText>
+          </Pressable>
 
-                <Pressable
-                  style={styles.actionRow}
-                  onPress={() => setMode("rename")}
-                >
-                  <Ionicons name="pencil-outline" size={18} color="#1a1c20" />
-                  <ThemedText type="small" style={styles.actionLabel}>
-                    Rename
-                  </ThemedText>
-                </Pressable>
+          <Pressable style={styles.actionRow} onPress={() => setMode("move")}>
+            <Ionicons name="folder-outline" size={18} color="#1a1c20" />
+            <ThemedText type="small" style={styles.actionLabel}>
+              Move
+            </ThemedText>
+          </Pressable>
 
-                <Pressable
-                  style={styles.actionRow}
-                  onPress={() => setMode("move")}
-                >
-                  <Ionicons name="folder-outline" size={18} color="#1a1c20" />
-                  <ThemedText type="small" style={styles.actionLabel}>
-                    Move
-                  </ThemedText>
-                </Pressable>
+          <Pressable style={styles.actionRow} onPress={() => setMode("color")}>
+            <Ionicons name="color-palette-outline" size={18} color="#1a1c20" />
+            <ThemedText type="small" style={styles.actionLabel}>
+              Icon Color
+            </ThemedText>
+          </Pressable>
 
-                <Pressable
-                  style={styles.actionRow}
-                  onPress={() => setMode("color")}
-                >
-                  <Ionicons
-                    name="color-palette-outline"
-                    size={18}
-                    color="#1a1c20"
-                  />
-                  <ThemedText type="small" style={styles.actionLabel}>
-                    Icon Color
-                  </ThemedText>
-                </Pressable>
+          <Pressable
+            style={styles.actionRow}
+            onPress={() => {
+              onClose();
+              onDeleteRequested(document);
+            }}
+          >
+            <Ionicons name="trash-outline" size={18} color="#ef4444" />
+            <ThemedText type="small" style={styles.actionLabelDestructive}>
+              Delete
+            </ThemedText>
+          </Pressable>
+        </>
+      )}
 
-                <Pressable
-                  style={styles.actionRow}
-                  onPress={() => {
-                    onClose();
-                    onDeleteRequested(document);
-                  }}
-                >
-                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                  <ThemedText
-                    type="small"
-                    style={styles.actionLabelDestructive}
-                  >
-                    Delete
-                  </ThemedText>
-                </Pressable>
-              </>
+      {mode === "rename" && (
+        <>
+          <View style={styles.headerRow}>
+            <Pressable hitSlop={8} onPress={() => setMode("menu")}>
+              <Ionicons name="chevron-back" size={20} color="#1a1c20" />
+            </Pressable>
+            <ThemedText type="smallBold" style={styles.headerTitle}>
+              Rename
+            </ThemedText>
+            <View style={styles.headerSpacer} />
+            <Pressable
+              onPress={handleClose}
+              style={styles.closeButton}
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={18} color="#60646C" />
+            </Pressable>
+          </View>
+
+          <TextInput
+            value={newName}
+            onChangeText={setNewName}
+            placeholder="Document name"
+            placeholderTextColor="#8b8f99"
+            style={styles.textInput}
+            autoFocus
+          />
+
+          <Pressable
+            onPress={handleRenameSave}
+            disabled={!newName.trim() || isSaving}
+            style={[
+              styles.saveButton,
+              (!newName.trim() || isSaving) && styles.buttonDisabled,
+            ]}
+          >
+            {isSaving ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <ThemedText type="smallBold" style={styles.saveButtonText}>
+                Save
+              </ThemedText>
             )}
+          </Pressable>
+        </>
+      )}
 
-            {mode === "rename" && (
-              <>
-                <View style={styles.headerRow}>
-                  <Pressable hitSlop={8} onPress={() => setMode("menu")}>
-                    <Ionicons name="chevron-back" size={20} color="#1a1c20" />
-                  </Pressable>
-                  <ThemedText type="smallBold" style={styles.headerTitle}>
-                    Rename
+      {mode === "move" && (
+        <>
+          <View style={styles.headerRow}>
+            <Pressable hitSlop={8} onPress={() => setMode("menu")}>
+              <Ionicons name="chevron-back" size={20} color="#1a1c20" />
+            </Pressable>
+            <ThemedText type="smallBold" style={styles.headerTitle}>
+              Move to...
+            </ThemedText>
+            <View style={styles.headerSpacer} />
+            <Pressable
+              onPress={handleClose}
+              style={styles.closeButton}
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={18} color="#60646C" />
+            </Pressable>
+          </View>
+
+          {folders.map((folder) => {
+            const isCurrent = folder.id === document.folder_id;
+            return (
+              <Pressable
+                key={folder.id}
+                style={[
+                  styles.actionRow,
+                  isCurrent && styles.actionRowDisabled,
+                ]}
+                onPress={() => handleMoveTo(folder.id)}
+                disabled={isCurrent || isSaving}
+              >
+                <Ionicons name="folder-outline" size={18} color="#1a1c20" />
+                <ThemedText type="small" style={styles.actionLabel}>
+                  {folder.name}
+                </ThemedText>
+                {isCurrent && (
+                  <ThemedText type="small" style={styles.currentTag}>
+                    Current
                   </ThemedText>
-                  <View style={styles.headerSpacer} />
-                  <Pressable
-                    onPress={handleClose}
-                    style={styles.closeButton}
-                    hitSlop={8}
-                  >
-                    <Ionicons name="close" size={18} color="#60646C" />
-                  </Pressable>
-                </View>
+                )}
+              </Pressable>
+            );
+          })}
+        </>
+      )}
 
-                <TextInput
-                  value={newName}
-                  onChangeText={setNewName}
-                  placeholder="Document name"
-                  placeholderTextColor="#8b8f99"
-                  style={styles.textInput}
-                  autoFocus
-                />
+      {mode === "color" && (
+        <>
+          <View style={styles.headerRow}>
+            <Pressable hitSlop={8} onPress={() => setMode("menu")}>
+              <Ionicons name="chevron-back" size={20} color="#1a1c20" />
+            </Pressable>
+            <ThemedText type="smallBold" style={styles.headerTitle}>
+              Icon Color
+            </ThemedText>
+            <View style={styles.headerSpacer} />
+            <Pressable
+              onPress={handleClose}
+              style={styles.closeButton}
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={18} color="#60646C" />
+            </Pressable>
+          </View>
 
+          <View style={styles.colorSwatchRow}>
+            {ICON_COLOR_OPTIONS.map((color) => {
+              const isSelected = document.icon_color === color;
+              return (
                 <Pressable
-                  onPress={handleRenameSave}
-                  disabled={!newName.trim() || isSaving}
+                  key={color}
+                  onPress={() => handleColorSelect(color)}
+                  disabled={isSaving}
                   style={[
-                    styles.saveButton,
-                    (!newName.trim() || isSaving) && styles.buttonDisabled,
+                    styles.colorSwatch,
+                    { backgroundColor: color },
+                    isSelected && styles.colorSwatchSelected,
                   ]}
                 >
-                  {isSaving ? (
-                    <ActivityIndicator color="#ffffff" />
-                  ) : (
-                    <ThemedText type="smallBold" style={styles.saveButtonText}>
-                      Save
-                    </ThemedText>
+                  {isSelected && (
+                    <Ionicons name="checkmark" size={18} color="#ffffff" />
                   )}
                 </Pressable>
-              </>
-            )}
-
-            {mode === "move" && (
-              <>
-                <View style={styles.headerRow}>
-                  <Pressable hitSlop={8} onPress={() => setMode("menu")}>
-                    <Ionicons name="chevron-back" size={20} color="#1a1c20" />
-                  </Pressable>
-                  <ThemedText type="smallBold" style={styles.headerTitle}>
-                    Move to...
-                  </ThemedText>
-                  <View style={styles.headerSpacer} />
-                  <Pressable
-                    onPress={handleClose}
-                    style={styles.closeButton}
-                    hitSlop={8}
-                  >
-                    <Ionicons name="close" size={18} color="#60646C" />
-                  </Pressable>
-                </View>
-
-                {folders.map((folder) => {
-                  const isCurrent = folder.id === document.folder_id;
-                  return (
-                    <Pressable
-                      key={folder.id}
-                      style={[
-                        styles.actionRow,
-                        isCurrent && styles.actionRowDisabled,
-                      ]}
-                      onPress={() => handleMoveTo(folder.id)}
-                      disabled={isCurrent || isSaving}
-                    >
-                      <Ionicons
-                        name="folder-outline"
-                        size={18}
-                        color="#1a1c20"
-                      />
-                      <ThemedText type="small" style={styles.actionLabel}>
-                        {folder.name}
-                      </ThemedText>
-                      {isCurrent && (
-                        <ThemedText type="small" style={styles.currentTag}>
-                          Current
-                        </ThemedText>
-                      )}
-                    </Pressable>
-                  );
-                })}
-              </>
-            )}
-
-            {mode === "color" && (
-              <>
-                <View style={styles.headerRow}>
-                  <Pressable hitSlop={8} onPress={() => setMode("menu")}>
-                    <Ionicons name="chevron-back" size={20} color="#1a1c20" />
-                  </Pressable>
-                  <ThemedText type="smallBold" style={styles.headerTitle}>
-                    Icon Color
-                  </ThemedText>
-                  <View style={styles.headerSpacer} />
-                  <Pressable
-                    onPress={handleClose}
-                    style={styles.closeButton}
-                    hitSlop={8}
-                  >
-                    <Ionicons name="close" size={18} color="#60646C" />
-                  </Pressable>
-                </View>
-
-                <View style={styles.colorSwatchRow}>
-                  {ICON_COLOR_OPTIONS.map((color) => {
-                    const isSelected = document.icon_color === color;
-                    return (
-                      <Pressable
-                        key={color}
-                        onPress={() => handleColorSelect(color)}
-                        disabled={isSaving}
-                        style={[
-                          styles.colorSwatch,
-                          { backgroundColor: color },
-                          isSelected && styles.colorSwatchSelected,
-                        ]}
-                      >
-                        {isSelected && (
-                          <Ionicons
-                            name="checkmark"
-                            size={18}
-                            color="#ffffff"
-                          />
-                        )}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </>
-            )}
-          </SafeAreaView>
-        </Pressable>
-      </Pressable>
-    </Modal>
+              );
+            })}
+          </View>
+        </>
+      )}
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: "#ffffff",
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
-    padding: Spacing.four,
-    gap: Spacing.one,
-  },
-  grabber: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#e4e5e9",
-    alignSelf: "center",
-    marginBottom: Spacing.two,
-  },
   menuHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",

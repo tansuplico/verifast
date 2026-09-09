@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AddRequestModal } from "@/components/add-request-modal";
+import { LoadErrorState } from "@/components/load-error-state";
 import { RequestActionsMenu } from "@/components/request-actions-menu";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
@@ -74,13 +75,13 @@ export default function RequestedDocsScreen() {
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [actionsRequest, setActionsRequest] = useState<RequestRow | null>(null);
-
+  const [loadError, setLoadError] = useState(false);
   const loadRequests = useCallback(
     async (isRefresh = false) => {
       if (!session) return;
       isRefresh ? setIsRefreshing(true) : setIsLoading(true);
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("document_requests")
         .select(
           "id, document_type, office, status, requested_date, released_date",
@@ -88,7 +89,14 @@ export default function RequestedDocsScreen() {
         .eq("user_id", session.user.id)
         .order("created_at", { ascending: false });
 
-      setRequests(data ?? []);
+      if (error) {
+        console.error("Failed to load document requests", error);
+        setLoadError(true);
+      } else {
+        setLoadError(false);
+        setRequests(data ?? []);
+      }
+
       isRefresh ? setIsRefreshing(false) : setIsLoading(false);
     },
     [session],
@@ -236,12 +244,16 @@ export default function RequestedDocsScreen() {
           </View>
         )}
 
-        {!isLoading && requests.length === 0 && (
-          <ThemedText type="small" style={styles.emptyText}>
-            No document requests yet. Tap the button below to log one you've
-            requested from a school office.
-          </ThemedText>
-        )}
+        {!isLoading &&
+          requests.length === 0 &&
+          (loadError ? (
+            <LoadErrorState onRetry={() => loadRequests()} />
+          ) : (
+            <ThemedText type="small" style={styles.emptyText}>
+              No document requests yet. Tap the button below to log one you've
+              requested from a school office.
+            </ThemedText>
+          ))}
 
         {requests.length > 0 && (
           <View style={styles.listCard}>

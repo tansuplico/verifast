@@ -21,6 +21,7 @@ import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
 
+import { LoadErrorState } from "@/components/load-error-state";
 import { SkeletonBlock } from "@/components/skeleton";
 import type { DocumentRow } from "@/types/documents";
 
@@ -124,7 +125,7 @@ export default function DocumentsScreen() {
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [actionsDoc, setActionsDoc] = useState<DocumentRow | null>(null);
-
+  const [loadError, setLoadError] = useState(false);
   const loadDocuments = useCallback(
     async (isRefresh = false) => {
       if (!session) return;
@@ -144,8 +145,18 @@ export default function DocumentsScreen() {
           .order("created_at", { ascending: false }),
       ]);
 
-      setFolders(foldersResult.data ?? []);
-      setDocuments(documentsResult.data ?? []);
+      if (foldersResult.error || documentsResult.error) {
+        console.error(
+          "Failed to load documents",
+          foldersResult.error ?? documentsResult.error,
+        );
+        setLoadError(true);
+      } else {
+        setLoadError(false);
+        setFolders(foldersResult.data ?? []);
+        setDocuments(documentsResult.data ?? []);
+      }
+
       isRefresh ? setIsRefreshing(false) : setIsLoading(false);
     },
     [session],
@@ -370,15 +381,19 @@ export default function DocumentsScreen() {
             <DocumentSkeletonRow key={`doc-skeleton-${i}`} />
           ))}
 
-        {!isLoading && filteredDocuments.length === 0 && (
-          <ThemedText type="small" style={styles.emptyText}>
-            {searchQuery
-              ? "No documents match your search"
-              : activeFolder
-                ? `No documents in ${activeFolder.name} yet`
-                : "No documents yet"}
-          </ThemedText>
-        )}
+        {!isLoading &&
+          filteredDocuments.length === 0 &&
+          (loadError ? (
+            <LoadErrorState onRetry={() => loadDocuments()} />
+          ) : (
+            <ThemedText type="small" style={styles.emptyText}>
+              {searchQuery
+                ? "No documents match your search"
+                : activeFolder
+                  ? `No documents in ${activeFolder.name} yet`
+                  : "No documents yet"}
+            </ThemedText>
+          ))}
 
         {viewMode === "list" &&
           filteredDocuments.map((doc, index) => (

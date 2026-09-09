@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 
+import { LoadErrorState } from "@/components/load-error-state";
 import { ThemedText } from "@/components/themed-text";
 import {
   CATEGORY_STYLE,
@@ -94,6 +95,7 @@ export default function HomeScreen() {
   const [recentDocuments, setRecentDocuments] = useState<RecentDocument[]>([]);
   const [documentAlerts, setDocumentAlerts] = useState<DocumentAlert[]>([]);
   const [requestPreviews, setRequestPreviews] = useState<RequestPreview[]>([]);
+  const [loadError, setLoadError] = useState(false);
 
   const loadHomeData = useCallback(
     async (isRefresh = false) => {
@@ -137,48 +139,67 @@ export default function HomeScreen() {
           .limit(3),
       ]);
 
-      setFullName(profileResult.data?.full_name ?? null);
-      setDocumentsCount(countResult.count ?? 0);
+      if (
+        profileResult.error ||
+        countResult.error ||
+        recentResult.error ||
+        remindersResult.error ||
+        requestsResult.error
+      ) {
+        console.error(
+          "Failed to load home data",
+          profileResult.error ??
+            countResult.error ??
+            recentResult.error ??
+            remindersResult.error ??
+            requestsResult.error,
+        );
+        setLoadError(true);
+      } else {
+        setLoadError(false);
+        setFullName(profileResult.data?.full_name ?? null);
+        setDocumentsCount(countResult.count ?? 0);
 
-      setRecentDocuments(
-        (recentResult.data ?? []).map((doc, index) => ({
-          id: doc.id,
-          title: doc.name,
-          openedOn: formatShortDate(doc.updated_at),
-          icon: iconForMimeType(doc.mime_type),
-          color: DOC_COLORS[index % DOC_COLORS.length],
-        })),
-      );
+        setRecentDocuments(
+          (recentResult.data ?? []).map((doc, index) => ({
+            id: doc.id,
+            title: doc.name,
+            openedOn: formatShortDate(doc.updated_at),
+            icon: iconForMimeType(doc.mime_type),
+            color: DOC_COLORS[index % DOC_COLORS.length],
+          })),
+        );
 
-      setDocumentAlerts(
-        (remindersResult.data ?? []).map((reminder) => {
-          const style = CATEGORY_STYLE[reminder.category as ReminderCategory];
-          return {
-            id: reminder.id,
-            date: formatShortDate(reminder.due_date),
-            text: reminder.title,
-            icon: style.icon,
-            color: style.color,
-          };
-        }),
-      );
+        setDocumentAlerts(
+          (remindersResult.data ?? []).map((reminder) => {
+            const style = CATEGORY_STYLE[reminder.category as ReminderCategory];
+            return {
+              id: reminder.id,
+              date: formatShortDate(reminder.due_date),
+              text: reminder.title,
+              icon: style.icon,
+              color: style.color,
+            };
+          }),
+        );
 
-      setRequestPreviews(
-        (requestsResult.data ?? []).map((request, index) => {
-          const statusStyle = STATUS_STYLE[request.status as RequestStatus];
-          return {
-            id: request.id,
-            title: request.document_type,
-            office: request.office,
-            icon: iconForRequestType(request.document_type),
-            badgeColor: REQUEST_COLORS[index % REQUEST_COLORS.length],
-            statusLabel: statusStyle.label,
-            statusColor: statusStyle.color,
-            statusBackground: statusStyle.background,
-            statusIcon: statusStyle.icon,
-          };
-        }),
-      );
+        setRequestPreviews(
+          (requestsResult.data ?? []).map((request, index) => {
+            const statusStyle = STATUS_STYLE[request.status as RequestStatus];
+            return {
+              id: request.id,
+              title: request.document_type,
+              office: request.office,
+              icon: iconForRequestType(request.document_type),
+              badgeColor: REQUEST_COLORS[index % REQUEST_COLORS.length],
+              statusLabel: statusStyle.label,
+              statusColor: statusStyle.color,
+              statusBackground: statusStyle.background,
+              statusIcon: statusStyle.icon,
+            };
+          }),
+        );
+      }
 
       isRefresh ? setIsRefreshing(false) : setIsLoading(false);
     },
@@ -237,6 +258,8 @@ export default function HomeScreen() {
           </View>
         </LinearGradient>
 
+        {loadError && <LoadErrorState onRetry={() => loadHomeData()} />}
+
         <View style={styles.bodyContent}>
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
@@ -250,7 +273,7 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            {!isLoading && recentDocuments.length === 0 && (
+            {!isLoading && !loadError && recentDocuments.length === 0 && (
               <ThemedText type="small" style={styles.emptyText}>
                 No documents yet
               </ThemedText>
@@ -288,7 +311,7 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            {!isLoading && documentAlerts.length === 0 && (
+            {!isLoading && !loadError && documentAlerts.length === 0 && (
               <ThemedText type="small" style={styles.emptyText}>
                 No alerts right now
               </ThemedText>
@@ -331,7 +354,7 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            {!isLoading && requestPreviews.length === 0 && (
+            {!isLoading && !loadError && requestPreviews.length === 0 && (
               <ThemedText type="small" style={styles.emptyText}>
                 No document requests yet
               </ThemedText>

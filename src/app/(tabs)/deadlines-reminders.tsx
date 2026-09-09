@@ -8,6 +8,7 @@ import {
   AddReminderModal,
   type EditableReminder,
 } from "@/components/add-reminder-modal";
+import { LoadErrorState } from "@/components/load-error-state";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
@@ -97,26 +98,34 @@ export default function DeadlinesRemindersScreen() {
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [editingReminder, setEditingReminder] =
     useState<EditableReminder | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   const loadReminders = useCallback(async () => {
     if (!session) return;
     setIsLoading(true);
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("reminders")
       .select("id, title, due_date, category")
       .eq("user_id", session.user.id)
       .eq("status", "pending")
       .order("due_date", { ascending: true });
 
-    setReminders(
-      (data ?? []).map((row) => ({
-        id: row.id,
-        title: row.title,
-        dueDate: row.due_date,
-        category: row.category as ReminderCategory,
-      })),
-    );
+    if (error) {
+      console.error("Failed to load reminders", error);
+      setLoadError(true);
+    } else {
+      setLoadError(false);
+      setReminders(
+        (data ?? []).map((row) => ({
+          id: row.id,
+          title: row.title,
+          dueDate: row.due_date,
+          category: row.category as ReminderCategory,
+        })),
+      );
+    }
+
     setIsLoading(false);
   }, [session]);
 
@@ -162,9 +171,11 @@ export default function DeadlinesRemindersScreen() {
             <ThemedText type="small" style={styles.bannerText}>
               {isLoading && reminders.length === 0
                 ? "Loading your deadlines..."
-                : `You have ${upcomingCount} upcoming deadline${
-                    upcomingCount === 1 ? "" : "s"
-                  } in the next 3 weeks.`}
+                : loadError && reminders.length === 0
+                  ? "Couldn't load your deadlines — check your connection."
+                  : `You have ${upcomingCount} upcoming deadline${
+                      upcomingCount === 1 ? "" : "s"
+                    } in the next 3 weeks.`}
             </ThemedText>
           </View>
 
@@ -172,11 +183,15 @@ export default function DeadlinesRemindersScreen() {
             UPCOMING
           </ThemedText>
 
-          {!isLoading && reminders.length === 0 && (
-            <ThemedText type="small" style={styles.emptyText}>
-              No deadlines or reminders right now
-            </ThemedText>
-          )}
+          {!isLoading &&
+            reminders.length === 0 &&
+            (loadError ? (
+              <LoadErrorState onRetry={() => loadReminders()} />
+            ) : (
+              <ThemedText type="small" style={styles.emptyText}>
+                No deadlines or reminders right now
+              </ThemedText>
+            ))}
 
           <View style={styles.list}>
             {isLoading &&

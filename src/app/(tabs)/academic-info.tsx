@@ -15,6 +15,7 @@ import {
   AddAcademicInfoModal,
   type AcademicInfoItem,
 } from "@/components/add-academic-info-modal";
+import { LoadErrorState } from "@/components/load-error-state";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import {
@@ -82,6 +83,7 @@ export default function AcademicInfoScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<AcademicInfoItem | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   const loadData = useCallback(
     async (isRefresh = false) => {
@@ -102,8 +104,18 @@ export default function AcademicInfoScreen() {
           .order("posted_at", { ascending: false }),
       ]);
 
-      setProgram(profileResult.data?.program ?? null);
-      setItems(infoResult.data ?? []);
+      if (profileResult.error || infoResult.error) {
+        console.error(
+          "Failed to load academic info",
+          profileResult.error ?? infoResult.error,
+        );
+        setLoadError(true);
+      } else {
+        setLoadError(false);
+        setProgram(profileResult.data?.program ?? null);
+        setItems(infoResult.data ?? []);
+      }
+
       isRefresh ? setIsRefreshing(false) : setIsLoading(false);
     },
     [session],
@@ -180,13 +192,17 @@ export default function AcademicInfoScreen() {
             <AcademicInfoSkeletonCard key={`info-skeleton-${i}`} />
           ))}
 
-        {!isLoading && filteredItems.length === 0 && (
-          <ThemedText type="small" style={styles.emptyText}>
-            {activeFilter === "all"
-              ? "No academic info yet - tap + to add your first entry"
-              : `No ${FILTERS.find((filter) => filter.key === activeFilter)?.label.toLowerCase()} yet`}
-          </ThemedText>
-        )}
+        {!isLoading &&
+          filteredItems.length === 0 &&
+          (loadError ? (
+            <LoadErrorState onRetry={() => loadData()} />
+          ) : (
+            <ThemedText type="small" style={styles.emptyText}>
+              {activeFilter === "all"
+                ? "No academic info yet - tap + to add your first entry"
+                : `No ${FILTERS.find((filter) => filter.key === activeFilter)?.label.toLowerCase()} yet`}
+            </ThemedText>
+          ))}
 
         {filteredItems.map((item) => {
           const style = CATEGORY_STYLE[item.category];

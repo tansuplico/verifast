@@ -1,6 +1,7 @@
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/providers/toast-provider";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { decode } from "base64-arraybuffer";
 import * as DocumentPicker from "expo-document-picker";
@@ -84,7 +85,7 @@ export function AddDocumentModal({
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isPickerActive, setIsPickerActive] = useState(false);
-
+  const { showToast } = useToast();
   function reset() {
     setPickedFile(null);
     setDocumentName("");
@@ -224,6 +225,7 @@ export function AddDocumentModal({
       });
       if (insertResult.error) throw insertResult.error;
 
+      showToast("Document uploaded");
       reset();
       onUploaded();
       onClose();

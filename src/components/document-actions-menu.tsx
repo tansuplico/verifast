@@ -13,6 +13,7 @@ import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/providers/toast-provider";
 import type { DocumentRow } from "@/types/documents";
 
 type DocumentActionsMenuProps = {
@@ -53,9 +54,8 @@ export function DocumentActionsMenu({
   const [mode, setMode] = useState<Mode>("menu");
   const [newName, setNewName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const { showToast } = useToast();
 
-  // Reset back to the main menu, and seed the rename field, every time a
-  // different document is opened.
   useEffect(() => {
     if (document) {
       setMode("menu");
@@ -92,7 +92,7 @@ export function DocumentActionsMenu({
       );
       return;
     }
-
+    showToast("Document renamed");
     onRenamed();
     onClose();
   }
@@ -121,6 +121,7 @@ export function DocumentActionsMenu({
       return;
     }
 
+    showToast("Document moved");
     onMoved();
     onClose();
   }
@@ -149,6 +150,7 @@ export function DocumentActionsMenu({
       return;
     }
 
+    showToast("Color updated");
     onColorChanged();
     onClose();
   }

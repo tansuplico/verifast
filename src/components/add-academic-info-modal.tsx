@@ -18,6 +18,7 @@ import {
 } from "@/constants/academic-info-categories";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/providers/toast-provider";
 
 export type AcademicInfoItem = {
   id: string;
@@ -48,6 +49,7 @@ export function AddAcademicInfoModal({
   onSaved,
   editingItem,
 }: AddAcademicInfoModalProps) {
+  const { showToast } = useToast();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [category, setCategory] = useState<AcademicInfoCategory>("curriculum");
@@ -96,7 +98,7 @@ export function AddAcademicInfoModal({
       Alert.alert("Couldn't save", error.message);
       return;
     }
-
+    showToast(editingItem ? "Entry updated" : "Entry saved");
     onSaved();
     onClose();
   }
@@ -123,7 +125,7 @@ export function AddAcademicInfoModal({
               Alert.alert("Couldn't delete entry", error.message);
               return;
             }
-
+            showToast("Entry deleted");
             onSaved();
             onClose();
           },

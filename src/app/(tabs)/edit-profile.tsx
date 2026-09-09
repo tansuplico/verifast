@@ -20,6 +20,7 @@ import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
+import { useToast } from "@/providers/toast-provider";
 import { KeyboardAvoidingView } from "react-native";
 
 type ProfileRow = {
@@ -48,6 +49,7 @@ function getInitials(name: string, email: string | undefined) {
 export default function EditProfileScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  const { showToast } = useToast();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -184,6 +186,7 @@ export default function EditProfileScreen() {
       return;
     }
 
+    showToast("Profile updated");
     router.back();
   }
 

@@ -23,6 +23,7 @@ import { useAuth } from "@/providers/auth-provider";
 
 import { LoadErrorState } from "@/components/load-error-state";
 import { SkeletonBlock } from "@/components/skeleton";
+import { useToast } from "@/providers/toast-provider";
 import type { DocumentRow } from "@/types/documents";
 
 type FolderCategory = "academic" | "financial" | "identification" | "forms";
@@ -113,6 +114,7 @@ function DocumentSkeletonRow() {
 
 export default function DocumentsScreen() {
   const { session } = useAuth();
+  const { showToast } = useToast();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -210,6 +212,7 @@ export default function DocumentsScreen() {
                 Alert.alert("Couldn't delete document", dbError.message);
                 return;
               }
+              showToast("Document deleted");
               loadDocuments();
             },
           },

@@ -3,7 +3,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Linking,
   Pressable,
@@ -15,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DocumentPreviewModal } from "@/components/document-preview-modal";
+import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
@@ -102,6 +102,15 @@ function labelForCategory(category: AcademicInfoResult["category"]) {
 
 function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
+}
+
+function SearchResultSkeletonRow() {
+  return (
+    <View style={styles.resultRow}>
+      <SkeletonBlock width={40} height={40} radius={Spacing.two} />
+      <SkeletonBlock width="60%" height={14} radius={4} />
+    </View>
+  );
 }
 
 export default function SearchScreen() {
@@ -290,10 +299,11 @@ export default function SearchScreen() {
         ) : (
           <>
             {isSearching && (
-              <ActivityIndicator
-                style={styles.loadingIndicator}
-                color="#0d9488"
-              />
+              <>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <SearchResultSkeletonRow key={`search-skeleton-${i}`} />
+                ))}
+              </>
             )}
 
             {!isSearching && hasSearched && (

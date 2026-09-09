@@ -15,6 +15,7 @@ import {
   AddAcademicInfoModal,
   type AcademicInfoItem,
 } from "@/components/add-academic-info-modal";
+import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import {
   CATEGORY_STYLE,
@@ -45,6 +46,31 @@ function formatPostedDate(dateString: string) {
 
 function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
+}
+
+function AcademicInfoSkeletonCard() {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeaderRow}>
+        <SkeletonBlock width={40} height={40} radius={Spacing.two} />
+        <View style={styles.cardTextColumn}>
+          <SkeletonBlock width="70%" height={14} radius={4} />
+          <SkeletonBlock
+            width="90%"
+            height={11}
+            radius={4}
+            style={{ marginTop: 8 }}
+          />
+          <SkeletonBlock
+            width="50%"
+            height={11}
+            radius={4}
+            style={{ marginTop: 6 }}
+          />
+        </View>
+      </View>
+    </View>
+  );
 }
 
 export default function AcademicInfoScreen() {
@@ -148,6 +174,12 @@ export default function AcademicInfoScreen() {
           />
         }
       >
+        {isLoading &&
+          items.length === 0 &&
+          Array.from({ length: 4 }).map((_, i) => (
+            <AcademicInfoSkeletonCard key={`info-skeleton-${i}`} />
+          ))}
+
         {!isLoading && filteredItems.length === 0 && (
           <ThemedText type="small" style={styles.emptyText}>
             {activeFilter === "all"

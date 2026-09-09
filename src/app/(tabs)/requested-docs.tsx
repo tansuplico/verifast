@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AddRequestModal } from "@/components/add-request-modal";
 import { RequestActionsMenu } from "@/components/request-actions-menu";
+import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import {
   iconForRequestType,
@@ -40,6 +41,29 @@ function formatDate(dateString: string) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function RequestSkeletonRow({ isLast }: { isLast: boolean }) {
+  return (
+    <View style={[styles.row, !isLast && styles.rowDivider]}>
+      <SkeletonBlock width={44} height={44} radius={Spacing.two + 2} />
+      <View style={styles.rowTextGroup}>
+        <SkeletonBlock width="55%" height={14} radius={4} />
+        <SkeletonBlock
+          width="40%"
+          height={11}
+          radius={4}
+          style={{ marginTop: 6 }}
+        />
+        <SkeletonBlock
+          width="30%"
+          height={11}
+          radius={4}
+          style={{ marginTop: 4 }}
+        />
+      </View>
+    </View>
+  );
 }
 
 export default function RequestedDocsScreen() {
@@ -203,6 +227,14 @@ export default function RequestedDocsScreen() {
         <ThemedText type="small" style={styles.sectionLabel}>
           ALL REQUESTS
         </ThemedText>
+
+        {isLoading && (
+          <View style={styles.listCard}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <RequestSkeletonRow key={`req-skeleton-${i}`} isLast={i === 3} />
+            ))}
+          </View>
+        )}
 
         {!isLoading && requests.length === 0 && (
           <ThemedText type="small" style={styles.emptyText}>

@@ -21,6 +21,7 @@ import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
 
+import { SkeletonBlock } from "@/components/skeleton";
 import type { DocumentRow } from "@/types/documents";
 
 type FolderCategory = "academic" | "financial" | "identification" | "forms";
@@ -89,6 +90,24 @@ function formatShortDate(dateString: string) {
 
 function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
+}
+
+function DocumentSkeletonRow() {
+  return (
+    <View style={styles.fileRow}>
+      <SkeletonBlock width={40} height={40} radius={Spacing.two} />
+      <View style={styles.fileTextGroup}>
+        <SkeletonBlock width="60%" height={14} radius={4} />
+        <SkeletonBlock
+          width="35%"
+          height={11}
+          radius={4}
+          style={{ marginTop: 6 }}
+        />
+      </View>
+      <SkeletonBlock width={40} height={20} radius={Spacing.two} />
+    </View>
+  );
 }
 
 export default function DocumentsScreen() {
@@ -345,6 +364,11 @@ export default function DocumentsScreen() {
         >
           ALL FILES
         </ThemedText>
+
+        {isLoading &&
+          Array.from({ length: 5 }).map((_, i) => (
+            <DocumentSkeletonRow key={`doc-skeleton-${i}`} />
+          ))}
 
         {!isLoading && filteredDocuments.length === 0 && (
           <ThemedText type="small" style={styles.emptyText}>

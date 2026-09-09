@@ -18,9 +18,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "SCHEDULE_EXACT_ALARM"
-      ]
+      "permissions": ["SCHEDULE_EXACT_ALARM"]
     },
     "web": {
       "output": "static",
@@ -41,12 +39,6 @@
         {
           "photosPermission": "Allow VeriFast to access your photos to upload documents.",
           "cameraPermission": "Allow VeriFast to access your camera to take photos of documents."
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "color": "#0d9488"
         }
       ],
       "expo-sharing"

@@ -19,6 +19,7 @@ import {
 } from "@/constants/reminder-categories";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/providers/toast-provider";
 
 export type EditableReminder = {
   id: string;
@@ -67,6 +68,7 @@ export function AddReminderModal({
   onSaved,
   editingReminder,
 }: AddReminderModalProps) {
+  const { showToast } = useToast();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<ReminderCategory>("document");
   const [dueDate, setDueDate] = useState(new Date());
@@ -129,6 +131,7 @@ export function AddReminderModal({
       return;
     }
 
+    showToast(editingReminder ? "Reminder updated" : "Reminder saved");
     onSaved();
     onClose();
   }

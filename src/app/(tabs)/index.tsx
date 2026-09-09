@@ -193,7 +193,8 @@ export default function HomeScreen() {
     }, [loadHomeData]),
   );
 
-  const displayName = fullName || session?.user.email || "there";
+  const displayName =
+    fullName || (isLoading ? "..." : session?.user.email || "there");
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -225,7 +226,9 @@ export default function HomeScreen() {
             </ThemedText>
             <View style={styles.storageRow}>
               <ThemedText type="title" style={styles.storageCount}>
-                {isLoading ? "..." : `${documentsCount} files`}
+                {isLoading && documentsCount === 0
+                  ? "..."
+                  : `${documentsCount} files`}
               </ThemedText>
               <ThemedText type="small" style={styles.storageSubtext}>
                 across {FOLDERS_COUNT} folders

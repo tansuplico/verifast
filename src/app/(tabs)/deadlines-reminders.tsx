@@ -8,6 +8,7 @@ import {
   AddReminderModal,
   type EditableReminder,
 } from "@/components/add-reminder-modal";
+import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
 import {
@@ -57,6 +58,29 @@ function dueInLabel(days: number) {
 
 function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
+}
+
+function ReminderSkeletonCard() {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardTopRow}>
+        <SkeletonBlock width={72} height={22} radius={999} />
+        <SkeletonBlock width={18} height={18} radius={9} />
+      </View>
+      <SkeletonBlock
+        width="65%"
+        height={14}
+        radius={4}
+        style={{ marginTop: 4 }}
+      />
+      <SkeletonBlock
+        width="45%"
+        height={11}
+        radius={4}
+        style={{ marginTop: 4 }}
+      />
+    </View>
+  );
 }
 
 export default function DeadlinesRemindersScreen() {
@@ -136,7 +160,7 @@ export default function DeadlinesRemindersScreen() {
           <View style={styles.banner}>
             <Ionicons name="time-outline" size={18} color="#b45309" />
             <ThemedText type="small" style={styles.bannerText}>
-              {isLoading
+              {isLoading && reminders.length === 0
                 ? "Loading your deadlines..."
                 : `You have ${upcomingCount} upcoming deadline${
                     upcomingCount === 1 ? "" : "s"
@@ -155,6 +179,12 @@ export default function DeadlinesRemindersScreen() {
           )}
 
           <View style={styles.list}>
+            {isLoading &&
+              reminders.length === 0 &&
+              Array.from({ length: 4 }).map((_, i) => (
+                <ReminderSkeletonCard key={`reminder-skeleton-${i}`} />
+              ))}
+
             {reminders.map((reminder) => {
               const style = CATEGORY_STYLE[reminder.category];
               const days = daysUntil(reminder.dueDate);

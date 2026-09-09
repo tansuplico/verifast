@@ -17,6 +17,7 @@ type BottomSheetProps = {
   visible: boolean;
   onClose: () => void;
   children: ReactNode;
+  suspended?: boolean;
 };
 
 // React Native's built-in <Modal animationType="slide"> slides the backdrop
@@ -31,7 +32,12 @@ type BottomSheetProps = {
 // height, so the sheet is always guaranteed to start fully off-screen no
 // matter its actual (dynamic, content-dependent) height - no onLayout
 // measuring step needed.
-export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
+export function BottomSheet({
+  visible,
+  onClose,
+  children,
+  suspended,
+}: BottomSheetProps) {
   const [isMounted, setIsMounted] = useState(visible);
   const backdropOpacity = useSharedValue(0);
   const translateY = useSharedValue(SCREEN_HEIGHT);
@@ -70,7 +76,12 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
   if (!isMounted) return null;
 
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose}>
+    <Modal
+      visible={!suspended}
+      transparent
+      animationType="none"
+      onRequestClose={onClose}
+    >
       <View style={styles.container}>
         <Animated.View style={[styles.backdrop, backdropStyle]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />

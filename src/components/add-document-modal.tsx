@@ -83,6 +83,7 @@ export function AddDocumentModal({
   const [documentName, setDocumentName] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isPickerActive, setIsPickerActive] = useState(false);
 
   function reset() {
     setPickedFile(null);
@@ -114,67 +115,83 @@ export function AddDocumentModal({
   }
 
   async function handleTakePhoto() {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        "Camera access needed",
-        "Enable camera access in your device settings to take a photo.",
-      );
-      return;
+    setIsPickerActive(true);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Camera access needed",
+          "Enable camera access in your device settings to take a photo.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.8,
+        base64: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      applyPickedFile({
+        uri: asset.uri,
+        name: asset.fileName ?? `photo-${Date.now()}.jpg`,
+        mimeType: asset.mimeType ?? "image/jpeg",
+        size: asset.fileSize ?? null,
+        base64: asset.base64 ?? undefined,
+      });
+    } finally {
+      setIsPickerActive(false);
     }
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 0.8,
-      base64: true,
-    });
-    if (result.canceled) return;
-    const asset = result.assets[0];
-    applyPickedFile({
-      uri: asset.uri,
-      name: asset.fileName ?? `photo-${Date.now()}.jpg`,
-      mimeType: asset.mimeType ?? "image/jpeg",
-      size: asset.fileSize ?? null,
-      base64: asset.base64 ?? undefined,
-    });
   }
 
   async function handleUploadFile() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        "Photo library access needed",
-        "Enable photo library access in your device settings to upload a photo.",
-      );
-      return;
+    setIsPickerActive(true);
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Photo library access needed",
+          "Enable photo library access in your device settings to upload a photo.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+        base64: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      applyPickedFile({
+        uri: asset.uri,
+        name: asset.fileName ?? `image-${Date.now()}.jpg`,
+        mimeType: asset.mimeType ?? "image/jpeg",
+        size: asset.fileSize ?? null,
+        base64: asset.base64 ?? undefined,
+      });
+    } finally {
+      setIsPickerActive(false);
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.8,
-      base64: true,
-    });
-    if (result.canceled) return;
-    const asset = result.assets[0];
-    applyPickedFile({
-      uri: asset.uri,
-      name: asset.fileName ?? `image-${Date.now()}.jpg`,
-      mimeType: asset.mimeType ?? "image/jpeg",
-      size: asset.fileSize ?? null,
-      base64: asset.base64 ?? undefined,
-    });
   }
 
   async function handleFromFiles() {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: ["application/pdf"],
-      copyToCacheDirectory: true,
-    });
-    if (result.canceled) return;
-    const asset = result.assets[0];
-    applyPickedFile({
-      uri: asset.uri,
-      name: asset.name,
-      mimeType: asset.mimeType ?? "application/octet-stream",
-      size: asset.size ?? null,
-    });
+    setIsPickerActive(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf"],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      applyPickedFile({
+        uri: asset.uri,
+        name: asset.name,
+        mimeType: asset.mimeType ?? "application/octet-stream",
+        size: asset.size ?? null,
+      });
+    } finally {
+      setIsPickerActive(false);
+    }
   }
 
   async function handleAddDocument() {
@@ -223,7 +240,11 @@ export function AddDocumentModal({
     !!pickedFile && documentName.trim().length > 0 && !!selectedFolderId;
 
   return (
-    <BottomSheet visible={visible} onClose={handleClose}>
+    <BottomSheet
+      visible={visible}
+      onClose={handleClose}
+      suspended={isPickerActive}
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >

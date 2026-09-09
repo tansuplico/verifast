@@ -1,3 +1,6 @@
+import { ThemedText } from "@/components/themed-text";
+import { Spacing } from "@/constants/theme";
+import { supabase } from "@/lib/supabase";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { decode } from "base64-arraybuffer";
 import * as DocumentPicker from "expo-document-picker";
@@ -7,18 +10,13 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-
-import { ThemedText } from "@/components/themed-text";
-import { Spacing } from "@/constants/theme";
-import { supabase } from "@/lib/supabase";
+import { BottomSheet } from "./bottom-sheet";
 
 type FolderCategory = "academic" | "financial" | "identification" | "forms";
 
@@ -225,176 +223,145 @@ export function AddDocumentModal({
     !!pickedFile && documentName.trim().length > 0 && !!selectedFolderId;
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={handleClose}
-    >
+    <BottomSheet visible={visible} onClose={handleClose}>
       <KeyboardAvoidingView
-        style={styles.backdrop}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <SafeAreaView edges={["bottom"]} style={styles.sheet}>
-          <View style={styles.grabber} />
+        <View style={styles.headerRow}>
+          <ThemedText type="title" style={styles.title}>
+            Add Document
+          </ThemedText>
+          <Pressable
+            onPress={handleClose}
+            style={styles.closeButton}
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={18} color="#60646C" />
+          </Pressable>
+        </View>
 
-          <View style={styles.headerRow}>
-            <ThemedText type="title" style={styles.title}>
+        <View style={styles.sourceRow}>
+          <Pressable style={styles.sourceButton} onPress={handleTakePhoto}>
+            <View style={[styles.sourceIcon, { backgroundColor: "#3b82f6" }]}>
+              <Ionicons name="camera" size={20} color="#ffffff" />
+            </View>
+            <ThemedText type="small" style={styles.sourceLabel}>
+              Take Photo
+            </ThemedText>
+          </Pressable>
+
+          <Pressable style={styles.sourceButton} onPress={handleUploadFile}>
+            <View style={[styles.sourceIcon, { backgroundColor: "#0d9488" }]}>
+              <Ionicons name="cloud-upload" size={20} color="#ffffff" />
+            </View>
+            <ThemedText type="small" style={styles.sourceLabel}>
+              Upload File
+            </ThemedText>
+          </Pressable>
+
+          <Pressable style={styles.sourceButton} onPress={handleFromFiles}>
+            <View style={[styles.sourceIcon, { backgroundColor: "#8b5cf6" }]}>
+              <Ionicons name="folder" size={20} color="#ffffff" />
+            </View>
+            <ThemedText type="small" style={styles.sourceLabel}>
+              From Files
+            </ThemedText>
+          </Pressable>
+        </View>
+
+        <ThemedText type="small" style={styles.fieldLabel}>
+          Document Name
+        </ThemedText>
+        <TextInput
+          value={documentName}
+          onChangeText={setDocumentName}
+          placeholder="e.g. Good Moral Certificate"
+          placeholderTextColor="#8b8f99"
+          style={styles.textInput}
+        />
+
+        <ThemedText type="small" style={styles.fieldLabel}>
+          File Type
+        </ThemedText>
+        <View style={styles.chipRow}>
+          {TYPE_CHIPS.map((chip) => {
+            const isActive =
+              !!pickedFile && chip.mimeTypes.includes(pickedFile.mimeType);
+            return (
+              <View
+                key={chip.label}
+                style={[styles.typeChip, isActive && styles.typeChipActive]}
+              >
+                <ThemedText
+                  type="smallBold"
+                  style={
+                    isActive ? styles.typeChipTextActive : styles.typeChipText
+                  }
+                >
+                  {chip.label}
+                </ThemedText>
+              </View>
+            );
+          })}
+        </View>
+
+        <ThemedText type="small" style={styles.fieldLabel}>
+          Folder
+        </ThemedText>
+        <View style={styles.chipRow}>
+          {folders.map((folder) => {
+            const style = FOLDER_STYLE[folder.category];
+            const isActive = selectedFolderId === folder.id;
+            return (
+              <Pressable
+                key={folder.id}
+                onPress={() => setSelectedFolderId(folder.id)}
+                style={[
+                  styles.folderChip,
+                  isActive && {
+                    borderColor: style.color,
+                    backgroundColor: `${style.color}1a`,
+                  },
+                ]}
+              >
+                <Ionicons name={style.icon} size={14} color={style.color} />
+                <ThemedText
+                  type="small"
+                  style={
+                    isActive
+                      ? { color: style.color, fontWeight: "600" }
+                      : styles.folderChipText
+                  }
+                >
+                  {folder.name}
+                </ThemedText>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Pressable
+          style={[
+            styles.submitButton,
+            !canSubmit && styles.submitButtonDisabled,
+          ]}
+          onPress={handleAddDocument}
+          disabled={!canSubmit || isUploading}
+        >
+          {isUploading ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <ThemedText type="smallBold" style={styles.submitButtonText}>
               Add Document
             </ThemedText>
-            <Pressable
-              onPress={handleClose}
-              style={styles.closeButton}
-              hitSlop={8}
-            >
-              <Ionicons name="close" size={18} color="#60646C" />
-            </Pressable>
-          </View>
-
-          <View style={styles.sourceRow}>
-            <Pressable style={styles.sourceButton} onPress={handleTakePhoto}>
-              <View style={[styles.sourceIcon, { backgroundColor: "#3b82f6" }]}>
-                <Ionicons name="camera" size={20} color="#ffffff" />
-              </View>
-              <ThemedText type="small" style={styles.sourceLabel}>
-                Take Photo
-              </ThemedText>
-            </Pressable>
-
-            <Pressable style={styles.sourceButton} onPress={handleUploadFile}>
-              <View style={[styles.sourceIcon, { backgroundColor: "#0d9488" }]}>
-                <Ionicons name="cloud-upload" size={20} color="#ffffff" />
-              </View>
-              <ThemedText type="small" style={styles.sourceLabel}>
-                Upload File
-              </ThemedText>
-            </Pressable>
-
-            <Pressable style={styles.sourceButton} onPress={handleFromFiles}>
-              <View style={[styles.sourceIcon, { backgroundColor: "#8b5cf6" }]}>
-                <Ionicons name="folder" size={20} color="#ffffff" />
-              </View>
-              <ThemedText type="small" style={styles.sourceLabel}>
-                From Files
-              </ThemedText>
-            </Pressable>
-          </View>
-
-          <ThemedText type="small" style={styles.fieldLabel}>
-            Document Name
-          </ThemedText>
-          <TextInput
-            value={documentName}
-            onChangeText={setDocumentName}
-            placeholder="e.g. Good Moral Certificate"
-            placeholderTextColor="#8b8f99"
-            style={styles.textInput}
-          />
-
-          <ThemedText type="small" style={styles.fieldLabel}>
-            File Type
-          </ThemedText>
-          <View style={styles.chipRow}>
-            {TYPE_CHIPS.map((chip) => {
-              const isActive =
-                !!pickedFile && chip.mimeTypes.includes(pickedFile.mimeType);
-              return (
-                <View
-                  key={chip.label}
-                  style={[styles.typeChip, isActive && styles.typeChipActive]}
-                >
-                  <ThemedText
-                    type="smallBold"
-                    style={
-                      isActive ? styles.typeChipTextActive : styles.typeChipText
-                    }
-                  >
-                    {chip.label}
-                  </ThemedText>
-                </View>
-              );
-            })}
-          </View>
-
-          <ThemedText type="small" style={styles.fieldLabel}>
-            Folder
-          </ThemedText>
-          <View style={styles.chipRow}>
-            {folders.map((folder) => {
-              const style = FOLDER_STYLE[folder.category];
-              const isActive = selectedFolderId === folder.id;
-              return (
-                <Pressable
-                  key={folder.id}
-                  onPress={() => setSelectedFolderId(folder.id)}
-                  style={[
-                    styles.folderChip,
-                    isActive && {
-                      borderColor: style.color,
-                      backgroundColor: `${style.color}1a`,
-                    },
-                  ]}
-                >
-                  <Ionicons name={style.icon} size={14} color={style.color} />
-                  <ThemedText
-                    type="small"
-                    style={
-                      isActive
-                        ? { color: style.color, fontWeight: "600" }
-                        : styles.folderChipText
-                    }
-                  >
-                    {folder.name}
-                  </ThemedText>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Pressable
-            style={[
-              styles.submitButton,
-              !canSubmit && styles.submitButtonDisabled,
-            ]}
-            onPress={handleAddDocument}
-            disabled={!canSubmit || isUploading}
-          >
-            {isUploading ? (
-              <ActivityIndicator color="#ffffff" />
-            ) : (
-              <ThemedText type="smallBold" style={styles.submitButtonText}>
-                Add Document
-              </ThemedText>
-            )}
-          </Pressable>
-        </SafeAreaView>
+          )}
+        </Pressable>
       </KeyboardAvoidingView>
-    </Modal>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: "#ffffff",
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.two,
-    gap: Spacing.two,
-  },
-  grabber: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#e2e4e8",
-    alignSelf: "center",
-    marginBottom: Spacing.two,
-  },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",

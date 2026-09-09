@@ -3,15 +3,14 @@ import { useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
@@ -70,90 +69,60 @@ export function AddRequestModal({
   const canSubmit = documentType.trim().length > 0 && !isSaving;
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={handleClose}
-    >
+    <BottomSheet visible={visible} onClose={handleClose}>
       <KeyboardAvoidingView
-        style={styles.backdrop}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <SafeAreaView edges={["bottom"]} style={styles.sheet}>
-          <View style={styles.grabber} />
-
-          <View style={styles.headerRow}>
-            <ThemedText type="title" style={styles.title}>
-              Log a Request
-            </ThemedText>
-            <Pressable
-              onPress={handleClose}
-              style={styles.closeButton}
-              hitSlop={8}
-            >
-              <Ionicons name="close" size={18} color="#60646C" />
-            </Pressable>
-          </View>
-
-          <ThemedText type="small" style={styles.fieldLabel}>
-            Document Type
+        <View style={styles.headerRow}>
+          <ThemedText type="title" style={styles.title}>
+            Log a Request
           </ThemedText>
-          <TextInput
-            value={documentType}
-            onChangeText={setDocumentType}
-            placeholder="e.g. Transcript of Records"
-            placeholderTextColor="#8b8f99"
-            style={styles.textInput}
-          />
-
-          <ThemedText type="small" style={styles.fieldLabel}>
-            Office (optional)
-          </ThemedText>
-          <TextInput
-            value={office}
-            onChangeText={setOffice}
-            placeholder="e.g. Registrar's Office"
-            placeholderTextColor="#8b8f99"
-            style={styles.textInput}
-          />
-
           <Pressable
-            onPress={handleSave}
-            disabled={!canSubmit}
-            style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
+            onPress={handleClose}
+            style={styles.closeButton}
+            hitSlop={8}
           >
-            <ThemedText type="smallBold" style={styles.saveButtonText}>
-              {isSaving ? "Saving..." : "Save Request"}
-            </ThemedText>
+            <Ionicons name="close" size={18} color="#60646C" />
           </Pressable>
-        </SafeAreaView>
+        </View>
+
+        <ThemedText type="small" style={styles.fieldLabel}>
+          Document Type
+        </ThemedText>
+        <TextInput
+          value={documentType}
+          onChangeText={setDocumentType}
+          placeholder="e.g. Transcript of Records"
+          placeholderTextColor="#8b8f99"
+          style={styles.textInput}
+        />
+
+        <ThemedText type="small" style={styles.fieldLabel}>
+          Office (optional)
+        </ThemedText>
+        <TextInput
+          value={office}
+          onChangeText={setOffice}
+          placeholder="e.g. Registrar's Office"
+          placeholderTextColor="#8b8f99"
+          style={styles.textInput}
+        />
+
+        <Pressable
+          onPress={handleSave}
+          disabled={!canSubmit}
+          style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
+        >
+          <ThemedText type="smallBold" style={styles.saveButtonText}>
+            {isSaving ? "Saving..." : "Save Request"}
+          </ThemedText>
+        </Pressable>
       </KeyboardAvoidingView>
-    </Modal>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: "#ffffff",
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
-    padding: Spacing.four,
-    gap: Spacing.two,
-  },
-  grabber: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#e4e5e9",
-    alignSelf: "center",
-    marginBottom: Spacing.two,
-  },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",

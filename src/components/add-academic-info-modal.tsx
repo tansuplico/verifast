@@ -3,15 +3,14 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
 import {
   CATEGORY_STYLE,
@@ -136,156 +135,123 @@ export function AddAcademicInfoModal({
   const canSubmit = title.trim().length > 0 && !isSaving;
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={handleClose}
-    >
+    <BottomSheet visible={visible} onClose={handleClose}>
       <KeyboardAvoidingView
-        style={styles.backdrop}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <SafeAreaView edges={["bottom"]} style={styles.sheet}>
-          <View style={styles.grabber} />
-
-          <View style={styles.headerRow}>
-            <ThemedText type="title" style={styles.title}>
-              {editingItem ? "Edit Entry" : "Add Academic Info"}
-            </ThemedText>
-            <Pressable
-              onPress={handleClose}
-              style={styles.closeButton}
-              hitSlop={8}
-            >
-              <Ionicons name="close" size={18} color="#60646C" />
-            </Pressable>
-          </View>
-
-          <ThemedText type="small" style={styles.fieldLabel}>
-            Title
+        <View style={styles.headerRow}>
+          <ThemedText type="title" style={styles.title}>
+            {editingItem ? "Edit Entry" : "Add Academic Info"}
           </ThemedText>
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            placeholder="e.g. New GE Elective Added"
-            placeholderTextColor="#8b8f99"
-            style={styles.textInput}
-          />
+          <Pressable
+            onPress={handleClose}
+            style={styles.closeButton}
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={18} color="#60646C" />
+          </Pressable>
+        </View>
 
-          <ThemedText type="small" style={styles.fieldLabel}>
-            Category
-          </ThemedText>
-          <View style={styles.chipRow}>
-            {CATEGORY_OPTIONS.map((option) => {
-              const style = CATEGORY_STYLE[option];
-              const isSelected = category === option;
-              return (
-                <Pressable
-                  key={option}
-                  onPress={() => setCategory(option)}
+        <ThemedText type="small" style={styles.fieldLabel}>
+          Title
+        </ThemedText>
+        <TextInput
+          value={title}
+          onChangeText={setTitle}
+          placeholder="e.g. New GE Elective Added"
+          placeholderTextColor="#8b8f99"
+          style={styles.textInput}
+        />
+
+        <ThemedText type="small" style={styles.fieldLabel}>
+          Category
+        </ThemedText>
+        <View style={styles.chipRow}>
+          {CATEGORY_OPTIONS.map((option) => {
+            const style = CATEGORY_STYLE[option];
+            const isSelected = category === option;
+            return (
+              <Pressable
+                key={option}
+                onPress={() => setCategory(option)}
+                style={[
+                  styles.chip,
+                  {
+                    backgroundColor: isSelected
+                      ? style.color
+                      : `${style.color}1A`,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={style.icon}
+                  size={13}
+                  color={isSelected ? "#ffffff" : style.color}
+                />
+                <ThemedText
+                  type="small"
                   style={[
-                    styles.chip,
-                    {
-                      backgroundColor: isSelected
-                        ? style.color
-                        : `${style.color}1A`,
-                    },
+                    styles.chipLabel,
+                    { color: isSelected ? "#ffffff" : style.color },
                   ]}
                 >
-                  <Ionicons
-                    name={style.icon}
-                    size={13}
-                    color={isSelected ? "#ffffff" : style.color}
-                  />
-                  <ThemedText
-                    type="small"
-                    style={[
-                      styles.chipLabel,
-                      { color: isSelected ? "#ffffff" : style.color },
-                    ]}
-                  >
-                    {style.label}
-                  </ThemedText>
-                </Pressable>
-              );
-            })}
-          </View>
+                  {style.label}
+                </ThemedText>
+              </Pressable>
+            );
+          })}
+        </View>
 
-          <ThemedText type="small" style={styles.fieldLabel}>
-            Notes
-          </ThemedText>
-          <TextInput
-            value={content}
-            onChangeText={setContent}
-            placeholder="Add any details you want to remember"
-            placeholderTextColor="#8b8f99"
-            style={[styles.textInput, styles.multilineInput]}
-            multiline
+        <ThemedText type="small" style={styles.fieldLabel}>
+          Notes
+        </ThemedText>
+        <TextInput
+          value={content}
+          onChangeText={setContent}
+          placeholder="Add any details you want to remember"
+          placeholderTextColor="#8b8f99"
+          style={[styles.textInput, styles.multilineInput]}
+          multiline
+        />
+
+        <Pressable onPress={() => setIsPinned((v) => !v)} style={styles.pinRow}>
+          <Ionicons
+            name={isPinned ? "bookmark" : "bookmark-outline"}
+            size={18}
+            color="#0d9488"
           />
+          <ThemedText type="small" style={styles.pinLabel}>
+            Pin to top
+          </ThemedText>
+        </Pressable>
 
+        <Pressable
+          onPress={handleSave}
+          disabled={!canSubmit}
+          style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
+        >
+          <ThemedText type="smallBold" style={styles.saveButtonText}>
+            {isSaving ? "Saving..." : "Save"}
+          </ThemedText>
+        </Pressable>
+
+        {editingItem && (
           <Pressable
-            onPress={() => setIsPinned((v) => !v)}
-            style={styles.pinRow}
+            onPress={handleDelete}
+            disabled={isSaving}
+            style={styles.deleteButton}
           >
-            <Ionicons
-              name={isPinned ? "bookmark" : "bookmark-outline"}
-              size={18}
-              color="#0d9488"
-            />
-            <ThemedText type="small" style={styles.pinLabel}>
-              Pin to top
+            <ThemedText type="smallBold" style={styles.deleteButtonText}>
+              Delete Entry
             </ThemedText>
           </Pressable>
-
-          <Pressable
-            onPress={handleSave}
-            disabled={!canSubmit}
-            style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
-          >
-            <ThemedText type="smallBold" style={styles.saveButtonText}>
-              {isSaving ? "Saving..." : "Save"}
-            </ThemedText>
-          </Pressable>
-
-          {editingItem && (
-            <Pressable
-              onPress={handleDelete}
-              disabled={isSaving}
-              style={styles.deleteButton}
-            >
-              <ThemedText type="smallBold" style={styles.deleteButtonText}>
-                Delete Entry
-              </ThemedText>
-            </Pressable>
-          )}
-        </SafeAreaView>
+        )}
       </KeyboardAvoidingView>
-    </Modal>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: "#ffffff",
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
-    padding: Spacing.four,
-    gap: Spacing.two,
-  },
-  grabber: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#e4e5e9",
-    alignSelf: "center",
-    marginBottom: Spacing.two,
-  },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",

@@ -636,7 +636,7 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     right: Spacing.four,
-    bottom: BottomTabInset + Spacing.three,
+    bottom: Spacing.four,
     width: 56,
     height: 56,
     borderRadius: 28,

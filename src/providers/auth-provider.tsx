@@ -1,4 +1,5 @@
-import type { Session } from "@supabase/supabase-js";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { Session, User } from "@supabase/supabase-js";
 import { makeRedirectUri } from "expo-auth-session";
 import * as QueryParams from "expo-auth-session/build/QueryParams";
 import * as WebBrowser from "expo-web-browser";
@@ -17,6 +18,8 @@ type AuthContextValue = {
   session: Session | null;
   isLoading: boolean;
   isPasswordRecovery: boolean;
+  needsEmailOtpChallenge: boolean;
+  pendingOtpEmail: string | null;
   signIn: (
     email: string,
     password: string,
@@ -34,18 +37,70 @@ type AuthContextValue = {
   ) => Promise<{ error: string | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
+  setTwoFactorEnabled: (enabled: boolean) => Promise<{ error: string | null }>;
+  verifyEmailOtpChallenge: (
+    code: string,
+    rememberDevice: boolean,
+  ) => Promise<{ error: string | null }>;
+  resendEmailOtpChallenge: () => Promise<{ error: string | null }>;
+  cancelEmailOtpChallenge: () => Promise<void>;
 };
+
 WebBrowser.maybeCompleteAuthSession();
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+// "Remember this device" is intentionally device-local only (AsyncStorage
+// already never leaves this install) rather than a server-side trusted-
+// devices list - simplest option that satisfies "until they sign out".
+// Keyed per user id since more than one account could use the same device.
+const TRUST_KEY_PREFIX = "verifast_mfa_trusted_";
+
+async function isDeviceTrusted(userId: string) {
+  const value = await AsyncStorage.getItem(`${TRUST_KEY_PREFIX}${userId}`);
+  return value === "true";
+}
+
+async function setDeviceTrusted(userId: string, trusted: boolean) {
+  if (trusted) {
+    await AsyncStorage.setItem(`${TRUST_KEY_PREFIX}${userId}`, "true");
+  } else {
+    await AsyncStorage.removeItem(`${TRUST_KEY_PREFIX}${userId}`);
+  }
+}
+
+function hasTwoFactorEnabled(user: User | null | undefined) {
+  return user?.user_metadata?.two_factor_enabled === true;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [needsEmailOtpChallenge, setNeedsEmailOtpChallenge] = useState(false);
+  const [pendingOtpEmail, setPendingOtpEmail] = useState<string | null>(null);
+
+  // Shared by password sign-in, Google sign-in, and app-launch session
+  // restoration - see the file-level note on why launch also needs this
+  // check (killing the app between the password step and the emailed
+  // code would otherwise leave a fully-authenticated, unchallenged session).
+  async function maybeStartEmailOtpChallenge(user: User | null | undefined) {
+    if (!user?.email || !hasTwoFactorEnabled(user)) return;
+    if (await isDeviceTrusted(user.id)) return;
+
+    setPendingOtpEmail(user.email);
+    setNeedsEmailOtpChallenge(true);
+    // Fire-and-forget: failure here just means the user taps "Resend" on
+    // the challenge screen, which retries this same call.
+    await supabase.auth.signInWithOtp({
+      email: user.email,
+      options: { shouldCreateUser: false },
+    });
+  }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(async ({ data }) => {
       setSession(data.session);
+      await maybeStartEmailOtpChallenge(data.session?.user);
       setIsLoading(false);
     });
 
@@ -70,12 +125,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       isLoading,
       isPasswordRecovery,
+      needsEmailOtpChallenge,
+      pendingOtpEmail,
       async signIn(email, password) {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        return { error: error?.message ?? null };
+        if (error) {
+          return { error: error.message };
+        }
+        await maybeStartEmailOtpChallenge(data.user);
+        return { error: null };
       },
       async signUp(fullName, email, password) {
         const { data, error } = await supabase.auth.signUp({
@@ -89,7 +150,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       },
       async signOut() {
+        // Clear this device's trust for the current user before signing
+        // out, so "remember this device" only lasts "until they sign
+        // out", per the intended scope - a later sign-in on this same
+        // device (even by the same user) should challenge again.
+        if (session?.user.id) {
+          await setDeviceTrusted(session.user.id, false);
+        }
         setIsPasswordRecovery(false);
+        setNeedsEmailOtpChallenge(false);
+        setPendingOtpEmail(null);
         await supabase.auth.signOut();
       },
       async requestPasswordReset(email) {
@@ -155,15 +225,69 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { error: "Google sign-in didn't return a session." };
         }
 
-        const { error: sessionError } = await supabase.auth.setSession({
-          access_token: params.access_token,
-          refresh_token: params.refresh_token,
+        const { data: sessionData, error: sessionError } =
+          await supabase.auth.setSession({
+            access_token: params.access_token,
+            refresh_token: params.refresh_token,
+          });
+        if (sessionError) {
+          return { error: sessionError.message };
+        }
+        await maybeStartEmailOtpChallenge(sessionData.user);
+        return { error: null };
+      },
+      async setTwoFactorEnabled(enabled) {
+        const { error } = await supabase.auth.updateUser({
+          data: { two_factor_enabled: enabled },
         });
-        return { error: sessionError?.message ?? null };
+        return { error: error?.message ?? null };
+      },
+      async verifyEmailOtpChallenge(code, rememberDevice) {
+        if (!pendingOtpEmail) {
+          return { error: "No pending verification email." };
+        }
+        const { data, error } = await supabase.auth.verifyOtp({
+          email: pendingOtpEmail,
+          token: code,
+          type: "email",
+        });
+        if (error) {
+          return { error: error.message };
+        }
+        if (rememberDevice && data.user) {
+          await setDeviceTrusted(data.user.id, true);
+        }
+        setNeedsEmailOtpChallenge(false);
+        setPendingOtpEmail(null);
+        return { error: null };
+      },
+      async resendEmailOtpChallenge() {
+        if (!pendingOtpEmail) {
+          return { error: "No pending verification email." };
+        }
+        const { error } = await supabase.auth.signInWithOtp({
+          email: pendingOtpEmail,
+          options: { shouldCreateUser: false },
+        });
+        return { error: error?.message ?? null };
+      },
+      async cancelEmailOtpChallenge() {
+        // There's no clean "undo just the password step" in Supabase, so
+        // backing out of the challenge signs the (already-established)
+        // session back out entirely, consistent with signOut()'s trust
+        // clearing above.
+        setNeedsEmailOtpChallenge(false);
+        setPendingOtpEmail(null);
+        await supabase.auth.signOut();
       },
     }),
-
-    [session, isLoading, isPasswordRecovery],
+    [
+      session,
+      isLoading,
+      isPasswordRecovery,
+      needsEmailOtpChallenge,
+      pendingOtpEmail,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -31,7 +31,7 @@ function providerLabel(provider: string | undefined) {
 
 export default function SecurityPrivacyScreen() {
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, setTwoFactorEnabled } = useAuth();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -39,10 +39,9 @@ export default function SecurityPrivacyScreen() {
   const [showNew, setShowNew] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Local-only for now: there is no MFA table or TOTP library wired up yet,
-  // so this reflects UI state only (same convention as the notification
-  // toggles on the Profile screen) - defaults to on per the design.
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
+  const twoFactorEnabled =
+    session?.user.user_metadata?.two_factor_enabled === true;
+  const [isTogglingTwoFactor, setIsTogglingTwoFactor] = useState(false);
 
   async function handleUpdatePassword() {
     if (!currentPassword || !newPassword) {
@@ -88,6 +87,16 @@ export default function SecurityPrivacyScreen() {
     setCurrentPassword("");
     setNewPassword("");
     Alert.alert("Password updated", "Your password has been changed.");
+  }
+
+  async function handleToggleTwoFactor(next: boolean) {
+    if (isTogglingTwoFactor) return;
+    setIsTogglingTwoFactor(true);
+    const { error } = await setTwoFactorEnabled(next);
+    setIsTogglingTwoFactor(false);
+    if (error) {
+      Alert.alert("Couldn't update setting", error);
+    }
   }
 
   const connectedProvider = providerLabel(session?.user.app_metadata?.provider);
@@ -222,7 +231,7 @@ export default function SecurityPrivacyScreen() {
               </View>
               <ToggleSwitch
                 value={twoFactorEnabled}
-                onValueChange={setTwoFactorEnabled}
+                onValueChange={handleToggleTwoFactor}
               />
             </View>
 

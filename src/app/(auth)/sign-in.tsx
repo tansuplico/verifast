@@ -124,7 +124,7 @@ export default function SignInScreen() {
         </View>
 
         <Pressable style={styles.googleButton} onPress={handleGoogleSignIn}>
-          <GoogleIcon size={18} />{" "}
+          <GoogleIcon size={18} />
           <ThemedText type="smallBold" style={styles.googleButtonText}>
             Continue with Google
           </ThemedText>

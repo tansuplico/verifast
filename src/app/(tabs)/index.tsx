@@ -32,6 +32,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 // migration) - so this is a fixed constant, not data that needs fetching.
 const FOLDERS_COUNT = 4;
 
+const CLOCK_SKEW_ERROR_CODE = "PGRST303";
+const CLOCK_SKEW_RETRY_DELAY_MS = 1500;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 type RecentDocument = {
   id: string;
   title: string;
@@ -102,42 +109,70 @@ export default function HomeScreen() {
       if (!session) return;
       isRefresh ? setIsRefreshing(true) : setIsLoading(true);
 
-      const [
+      const fetchAll = () =>
+        Promise.all([
+          supabase
+            .from("profiles")
+            .select("full_name")
+            .eq("id", session.user.id)
+            .single(),
+          supabase
+            .from("documents")
+            .select("*", { count: "exact", head: true })
+            .eq("user_id", session.user.id),
+          supabase
+            .from("documents")
+            .select("id, name, mime_type, updated_at")
+            .eq("user_id", session.user.id)
+            .order("updated_at", { ascending: false })
+            .limit(3),
+          supabase
+            .from("reminders")
+            .select("id, title, category, due_date")
+            .eq("user_id", session.user.id)
+            .eq("status", "pending")
+            .order("due_date", { ascending: true })
+            .limit(3),
+          supabase
+            .from("document_requests")
+            .select("id, document_type, office, status")
+            .eq("user_id", session.user.id)
+            .order("created_at", { ascending: false })
+            .limit(3),
+        ]);
+
+      let [
         profileResult,
         countResult,
         recentResult,
         remindersResult,
         requestsResult,
-      ] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("full_name")
-          .eq("id", session.user.id)
-          .single(),
-        supabase
-          .from("documents")
-          .select("*", { count: "exact", head: true })
-          .eq("user_id", session.user.id),
-        supabase
-          .from("documents")
-          .select("id, name, mime_type, updated_at")
-          .eq("user_id", session.user.id)
-          .order("updated_at", { ascending: false })
-          .limit(3),
-        supabase
-          .from("reminders")
-          .select("id, title, category, due_date")
-          .eq("user_id", session.user.id)
-          .eq("status", "pending")
-          .order("due_date", { ascending: true })
-          .limit(3),
-        supabase
-          .from("document_requests")
-          .select("id, document_type, office, status")
-          .eq("user_id", session.user.id)
-          .order("created_at", { ascending: false })
-          .limit(3),
-      ]);
+      ] = await fetchAll();
+
+      // A just-issued token's `iat` is the exact sign-in instant, which is
+      // precisely when a few seconds of clock skew between Supabase's Auth
+      // and PostgREST services is most likely to make a fresh token look
+      // "issued in the future" (PGRST303). One retry after a short delay
+      // gives the token a couple seconds of age, which reliably clears it -
+      // this is project-side timing, not a problem with the query itself.
+      const hasClockSkewError = [
+        profileResult.error,
+        countResult.error,
+        recentResult.error,
+        remindersResult.error,
+        requestsResult.error,
+      ].some((error) => error?.code === CLOCK_SKEW_ERROR_CODE);
+
+      if (hasClockSkewError) {
+        await sleep(CLOCK_SKEW_RETRY_DELAY_MS);
+        [
+          profileResult,
+          countResult,
+          recentResult,
+          remindersResult,
+          requestsResult,
+        ] = await fetchAll();
+      }
 
       if (
         profileResult.error ||

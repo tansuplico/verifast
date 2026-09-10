@@ -27,7 +27,8 @@ export default function RootLayout() {
 }
 
 function RootNavigator() {
-  const { session, isLoading, isPasswordRecovery } = useAuth();
+  const { session, isLoading, isPasswordRecovery, needsEmailOtpChallenge } =
+    useAuth();
 
   if (isLoading) {
     return null;
@@ -39,15 +40,22 @@ function RootNavigator() {
         <Stack.Screen name="(auth)" />
       </Stack.Protected>
 
-      {/* A PASSWORD_RECOVERY session is still a real session, so this guard
-          has to come before the normal "signed in" branch and exclude it -
-          otherwise a user tapping a reset link would land straight in the
-          app instead of the "set new password" screen. */}
       <Stack.Protected guard={!!session && isPasswordRecovery}>
         <Stack.Screen name="reset-password" />
       </Stack.Protected>
 
-      <Stack.Protected guard={!!session && !isPasswordRecovery}>
+      {/* Must come before the tabs guard and exclude it below - a session
+          that hasn't cleared its emailed-code challenge yet is not allowed
+          into the app, the same way a recovery session isn't. */}
+      <Stack.Protected
+        guard={!!session && !isPasswordRecovery && needsEmailOtpChallenge}
+      >
+        <Stack.Screen name="mfa-challenge" />
+      </Stack.Protected>
+
+      <Stack.Protected
+        guard={!!session && !isPasswordRecovery && !needsEmailOtpChallenge}
+      >
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
           name="subscription"

@@ -18,7 +18,9 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "permissions": ["SCHEDULE_EXACT_ALARM"]
+      "permissions": [
+        "SCHEDULE_EXACT_ALARM"
+      ]
     },
     "web": {
       "output": "static",
@@ -41,7 +43,8 @@
           "cameraPermission": "Allow VeriFast to access your camera to take photos of documents."
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "@sentry/react-native"
     ],
     "experiments": {
       "typedRoutes": true,

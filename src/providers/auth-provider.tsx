@@ -20,6 +20,7 @@ type AuthContextValue = {
   isPasswordRecovery: boolean;
   needsEmailOtpChallenge: boolean;
   pendingOtpEmail: string | null;
+  otpResendAvailableAt: number | null;
   signIn: (
     email: string,
     password: string,
@@ -72,12 +73,36 @@ function hasTwoFactorEnabled(user: User | null | undefined) {
   return user?.user_metadata?.two_factor_enabled === true;
 }
 
+// Guards against spamming signInWithOtp - Supabase's own default limit is
+// one send per address per 60s (and just 2 emails/hour on default SMTP),
+// so anything shorter than that just wastes quota without ever reaching
+// the user's inbox. Persisted (not just component state) because the
+// thing we're guarding against - reloads/relaunches re-running the
+// launch-time check - is exactly the case where in-memory state resets.
+const LAST_SENT_KEY_PREFIX = "verifast_mfa_last_sent_";
+const OTP_RESEND_COOLDOWN_MS = 60_000;
+
+async function getOtpCooldownEndsAt(userId: string): Promise<number> {
+  const value = await AsyncStorage.getItem(`${LAST_SENT_KEY_PREFIX}${userId}`);
+  return value ? Number(value) + OTP_RESEND_COOLDOWN_MS : 0;
+}
+
+async function markOtpSentNow(userId: string) {
+  await AsyncStorage.setItem(
+    `${LAST_SENT_KEY_PREFIX}${userId}`,
+    String(Date.now()),
+  );
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [needsEmailOtpChallenge, setNeedsEmailOtpChallenge] = useState(false);
   const [pendingOtpEmail, setPendingOtpEmail] = useState<string | null>(null);
+  const [otpResendAvailableAt, setOtpResendAvailableAt] = useState<
+    number | null
+  >(null);
 
   // Shared by password sign-in, Google sign-in, and app-launch session
   // restoration - see the file-level note on why launch also needs this
@@ -87,22 +112,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user?.email || !hasTwoFactorEnabled(user)) return;
     if (await isDeviceTrusted(user.id)) return;
 
-    // Don't re-send if a challenge for this same email is already
-    // pending - every remount (dev reload, or a real relaunch) would
-    // otherwise fire a brand new code every time, invalidating one the
-    // user hasn't used yet and burning through Supabase's hourly email
-    // quota (default SMTP allows 2/hour; per-address cooldown is 60s).
-    if (needsEmailOtpChallenge && pendingOtpEmail === user.email) return;
-
     setPendingOtpEmail(user.email);
     setNeedsEmailOtpChallenge(true);
+
+    const cooldownEndsAt = await getOtpCooldownEndsAt(user.id);
+    if (Date.now() < cooldownEndsAt) {
+      // A code was already sent within the last 60s (e.g. a quick
+      // reload right after one went out) - the challenge screen still
+      // shows, but don't fire another send on top of the existing code.
+      setOtpResendAvailableAt(cooldownEndsAt);
+      return;
+    }
+
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email: user.email,
         options: { shouldCreateUser: false },
       });
       if (error) {
+        // Surfaced in logs only - the challenge screen is already up,
+        // and the user's own "Resend" retries this same call.
         console.warn("[2fa] failed to send challenge code:", error.message);
+      } else {
+        await markOtpSentNow(user.id);
+        setOtpResendAvailableAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
       }
     } catch (err) {
       console.warn("[2fa] failed to send challenge code:", err);
@@ -139,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isPasswordRecovery,
       needsEmailOtpChallenge,
       pendingOtpEmail,
+      otpResendAvailableAt,
       async signIn(email, password) {
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
@@ -274,9 +308,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setPendingOtpEmail(null);
           return { error: null };
         } catch (err) {
-          // Anything unexpected here (e.g. a native AsyncStorage hiccup on
-          // the setDeviceTrusted write) surfaces as a normal error instead
-          // of throwing past the caller and leaving isSubmitting stuck true.
+          // Anything unexpected here (e.g. a native AsyncStorage hiccup
+          // on the setDeviceTrusted write) surfaces as a normal error
+          // instead of throwing past the caller and leaving its
+          // isSubmitting flag stuck true forever.
           const message =
             err instanceof Error
               ? err.message
@@ -288,11 +323,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!pendingOtpEmail) {
           return { error: "No pending verification email." };
         }
+        const userId = session?.user.id;
+        if (userId) {
+          const cooldownEndsAt = await getOtpCooldownEndsAt(userId);
+          if (Date.now() < cooldownEndsAt) {
+            const secondsLeft = Math.ceil((cooldownEndsAt - Date.now()) / 1000);
+            return {
+              error: `Please wait ${secondsLeft}s before requesting another code.`,
+            };
+          }
+        }
         try {
           const { error } = await supabase.auth.signInWithOtp({
             email: pendingOtpEmail,
             options: { shouldCreateUser: false },
           });
+          if (!error && userId) {
+            await markOtpSentNow(userId);
+            setOtpResendAvailableAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
+          }
           return { error: error?.message ?? null };
         } catch (err) {
           const message =
@@ -302,7 +351,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { error: message };
         }
       },
-
       async cancelEmailOtpChallenge() {
         // There's no clean "undo just the password step" in Supabase, so
         // backing out of the challenge signs the (already-established)
@@ -319,6 +367,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isPasswordRecovery,
       needsEmailOtpChallenge,
       pendingOtpEmail,
+      otpResendAvailableAt,
     ],
   );
 

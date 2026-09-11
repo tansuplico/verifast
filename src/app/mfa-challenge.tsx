@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -23,11 +23,33 @@ export default function MfaChallengeScreen() {
     verifyEmailOtpChallenge,
     resendEmailOtpChallenge,
     cancelEmailOtpChallenge,
+    otpResendAvailableAt,
   } = useAuth();
   const [code, setCode] = useState("");
   const [rememberDevice, setRememberDevice] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const [cooldownSecondsLeft, setCooldownSecondsLeft] = useState(0);
+
+  // Ticks the "Resend available in Ns" countdown from the shared cooldown
+  // timestamp - this is what stops someone (or a dev reload) from firing
+  // another code before Supabase's own 60s-per-address limit clears.
+  useEffect(() => {
+    if (!otpResendAvailableAt) {
+      setCooldownSecondsLeft(0);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.max(
+        0,
+        Math.ceil((otpResendAvailableAt - Date.now()) / 1000),
+      );
+      setCooldownSecondsLeft(remaining);
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [otpResendAvailableAt]);
 
   async function handleVerify() {
     if (!code.trim()) {
@@ -46,9 +68,9 @@ export default function MfaChallengeScreen() {
       // Success flips needsEmailOtpChallenge - the root layout's guard
       // takes it from here and routes into the app.
     } finally {
-      // Belt-and-suspenders: verifyEmailOtpChallenge now catches its own
-      // errors, but this guarantees the button never sticks on
-      // "Verifying..." even if something throws above that layer.
+      // Belt-and-suspenders: verifyEmailOtpChallenge itself now catches
+      // its own errors, but this guarantees the button never gets stuck
+      // on "Verifying..." even if something throws above that layer.
       setIsSubmitting(false);
     }
   }
@@ -135,10 +157,14 @@ export default function MfaChallengeScreen() {
         <Pressable
           style={styles.resendRow}
           onPress={handleResend}
-          disabled={isResending}
+          disabled={isResending || cooldownSecondsLeft > 0}
         >
           <ThemedText type="small" style={styles.resendText}>
-            {isResending ? "Resending..." : "Didn't get a code? Resend"}
+            {isResending
+              ? "Resending..."
+              : cooldownSecondsLeft > 0
+                ? `Resend available in ${cooldownSecondsLeft}s`
+                : "Didn't get a code? Resend"}
           </ThemedText>
         </Pressable>
       </ScrollView>

@@ -87,14 +87,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user?.email || !hasTwoFactorEnabled(user)) return;
     if (await isDeviceTrusted(user.id)) return;
 
+    // Don't re-send if a challenge for this same email is already
+    // pending - every remount (dev reload, or a real relaunch) would
+    // otherwise fire a brand new code every time, invalidating one the
+    // user hasn't used yet and burning through Supabase's hourly email
+    // quota (default SMTP allows 2/hour; per-address cooldown is 60s).
+    if (needsEmailOtpChallenge && pendingOtpEmail === user.email) return;
+
     setPendingOtpEmail(user.email);
     setNeedsEmailOtpChallenge(true);
-    // Fire-and-forget: failure here just means the user taps "Resend" on
-    // the challenge screen, which retries this same call.
-    await supabase.auth.signInWithOtp({
-      email: user.email,
-      options: { shouldCreateUser: false },
-    });
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: user.email,
+        options: { shouldCreateUser: false },
+      });
+      if (error) {
+        console.warn("[2fa] failed to send challenge code:", error.message);
+      }
+    } catch (err) {
+      console.warn("[2fa] failed to send challenge code:", err);
+    }
   }
 
   useEffect(() => {
@@ -246,31 +258,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!pendingOtpEmail) {
           return { error: "No pending verification email." };
         }
-        const { data, error } = await supabase.auth.verifyOtp({
-          email: pendingOtpEmail,
-          token: code,
-          type: "email",
-        });
-        if (error) {
-          return { error: error.message };
+        try {
+          const { data, error } = await supabase.auth.verifyOtp({
+            email: pendingOtpEmail,
+            token: code,
+            type: "email",
+          });
+          if (error) {
+            return { error: error.message };
+          }
+          if (rememberDevice && data.user) {
+            await setDeviceTrusted(data.user.id, true);
+          }
+          setNeedsEmailOtpChallenge(false);
+          setPendingOtpEmail(null);
+          return { error: null };
+        } catch (err) {
+          // Anything unexpected here (e.g. a native AsyncStorage hiccup on
+          // the setDeviceTrusted write) surfaces as a normal error instead
+          // of throwing past the caller and leaving isSubmitting stuck true.
+          const message =
+            err instanceof Error
+              ? err.message
+              : "Something went wrong. Please try again.";
+          return { error: message };
         }
-        if (rememberDevice && data.user) {
-          await setDeviceTrusted(data.user.id, true);
-        }
-        setNeedsEmailOtpChallenge(false);
-        setPendingOtpEmail(null);
-        return { error: null };
       },
       async resendEmailOtpChallenge() {
         if (!pendingOtpEmail) {
           return { error: "No pending verification email." };
         }
-        const { error } = await supabase.auth.signInWithOtp({
-          email: pendingOtpEmail,
-          options: { shouldCreateUser: false },
-        });
-        return { error: error?.message ?? null };
+        try {
+          const { error } = await supabase.auth.signInWithOtp({
+            email: pendingOtpEmail,
+            options: { shouldCreateUser: false },
+          });
+          return { error: error?.message ?? null };
+        } catch (err) {
+          const message =
+            err instanceof Error
+              ? err.message
+              : "Something went wrong. Please try again.";
+          return { error: message };
+        }
       },
+
       async cancelEmailOtpChallenge() {
         // There's no clean "undo just the password step" in Supabase, so
         // backing out of the challenge signs the (already-established)

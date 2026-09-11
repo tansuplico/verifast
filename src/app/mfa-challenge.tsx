@@ -35,24 +35,33 @@ export default function MfaChallengeScreen() {
       return;
     }
     setIsSubmitting(true);
-    const { error } = await verifyEmailOtpChallenge(
-      code.trim(),
-      rememberDevice,
-    );
-    setIsSubmitting(false);
-    if (error) {
-      Alert.alert("Invalid code", error);
+    try {
+      const { error } = await verifyEmailOtpChallenge(
+        code.trim(),
+        rememberDevice,
+      );
+      if (error) {
+        Alert.alert("Invalid code", error);
+      }
+      // Success flips needsEmailOtpChallenge - the root layout's guard
+      // takes it from here and routes into the app.
+    } finally {
+      // Belt-and-suspenders: verifyEmailOtpChallenge now catches its own
+      // errors, but this guarantees the button never sticks on
+      // "Verifying..." even if something throws above that layer.
+      setIsSubmitting(false);
     }
-    // Success flips needsEmailOtpChallenge - the root layout's guard
-    // takes it from here and routes into the app.
   }
 
   async function handleResend() {
     setIsResending(true);
-    const { error } = await resendEmailOtpChallenge();
-    setIsResending(false);
-    if (error) {
-      Alert.alert("Couldn't resend code", error);
+    try {
+      const { error } = await resendEmailOtpChallenge();
+      if (error) {
+        Alert.alert("Couldn't resend code", error);
+      }
+    } finally {
+      setIsResending(false);
     }
   }
 

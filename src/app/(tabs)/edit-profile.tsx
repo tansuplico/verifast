@@ -23,6 +23,10 @@ import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { KeyboardAvoidingView } from "react-native";
 
+const FULL_NAME_MAX_LENGTH = 80;
+const STUDENT_ID_MAX_LENGTH = 20;
+const PROGRAM_MAX_LENGTH = 80;
+
 type ProfileRow = {
   full_name: string | null;
   student_id: string | null;
@@ -267,7 +271,11 @@ export default function EditProfileScreen() {
                     placeholder="Enter your full name"
                     placeholderTextColor="#a5a9b1"
                     style={styles.input}
+                    maxLength={FULL_NAME_MAX_LENGTH}
                   />
+                  <ThemedText type="small" style={styles.charCount}>
+                    {fullName.length}/{FULL_NAME_MAX_LENGTH}
+                  </ThemedText>
                 </View>
 
                 <View style={styles.fieldGroup}>
@@ -277,10 +285,14 @@ export default function EditProfileScreen() {
                   <TextInput
                     value={studentId}
                     onChangeText={setStudentId}
-                    placeholder="e.g. 2023-12345"
+                    placeholder="e.g. 00-0000-00"
                     placeholderTextColor="#a5a9b1"
                     style={styles.input}
+                    maxLength={STUDENT_ID_MAX_LENGTH}
                   />
+                  <ThemedText type="small" style={styles.charCount}>
+                    {studentId.length}/{STUDENT_ID_MAX_LENGTH}
+                  </ThemedText>
                 </View>
 
                 <View style={styles.fieldGroup}>
@@ -293,7 +305,11 @@ export default function EditProfileScreen() {
                     placeholder="e.g. BS Information Technology"
                     placeholderTextColor="#a5a9b1"
                     style={styles.input}
+                    maxLength={PROGRAM_MAX_LENGTH}
                   />
+                  <ThemedText type="small" style={styles.charCount}>
+                    {program.length}/{PROGRAM_MAX_LENGTH}
+                  </ThemedText>
                 </View>
               </View>
 
@@ -397,4 +413,9 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.7 },
   saveButtonText: { color: "#ffffff", fontSize: 15 },
+  charCount: {
+    color: "#a5a9b1",
+    textAlign: "right",
+    marginTop: Spacing.half,
+  },
 });

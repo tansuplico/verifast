@@ -132,6 +132,7 @@ export default function MfaChallengeScreen() {
           keyboardType="number-pad"
           value={code}
           onChangeText={setCode}
+          maxLength={6}
         />
 
         <View style={styles.rememberRow}>

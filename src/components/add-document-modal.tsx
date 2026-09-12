@@ -19,6 +19,8 @@ import {
 } from "react-native";
 import { BottomSheet } from "./bottom-sheet";
 
+const DOCUMENT_NAME_MAX_LENGTH = 60;
+
 type FolderCategory = "academic" | "financial" | "identification" | "forms";
 
 type FolderRow = {
@@ -112,7 +114,10 @@ export function AddDocumentModal({
       return;
     }
     setPickedFile(file);
-    setDocumentName((current) => current || stripExtension(file.name));
+    setDocumentName(
+      (current) =>
+        current || stripExtension(file.name).slice(0, DOCUMENT_NAME_MAX_LENGTH),
+    );
   }
 
   async function handleTakePhoto() {
@@ -301,7 +306,11 @@ export function AddDocumentModal({
           placeholder="e.g. Good Moral Certificate"
           placeholderTextColor="#8b8f99"
           style={styles.textInput}
+          maxLength={DOCUMENT_NAME_MAX_LENGTH}
         />
+        <ThemedText type="small" style={styles.charCount}>
+          {documentName.length}/{DOCUMENT_NAME_MAX_LENGTH}
+        </ThemedText>
 
         <ThemedText type="small" style={styles.fieldLabel}>
           File Type
@@ -458,4 +467,9 @@ const styles = StyleSheet.create({
   },
   submitButtonDisabled: { opacity: 0.5 },
   submitButtonText: { color: "#ffffff", fontSize: 16 },
+  charCount: {
+    color: "#8b8f99",
+    textAlign: "right",
+    marginTop: Spacing.half,
+  },
 });

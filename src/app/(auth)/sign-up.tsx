@@ -18,6 +18,8 @@ import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { useAuth } from "@/providers/auth-provider";
 
+const PASSWORD_MAX_LENGTH = 72;
+
 export default function SignUpScreen() {
   const { signUp, signInWithGoogle } = useAuth();
   const [fullName, setFullName] = useState("");
@@ -127,6 +129,7 @@ export default function SignUpScreen() {
           isPassword
           value={password}
           onChangeText={setPassword}
+          maxLength={PASSWORD_MAX_LENGTH}
         />
 
         <AuthTextField
@@ -136,6 +139,7 @@ export default function SignUpScreen() {
           isPassword
           value={confirmPassword}
           onChangeText={setConfirmPassword}
+          maxLength={PASSWORD_MAX_LENGTH}
         />
 
         <Pressable

@@ -16,6 +16,8 @@ import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { useAuth } from "@/providers/auth-provider";
 
+const PASSWORD_MAX_LENGTH = 72;
+
 export default function ResetPasswordScreen() {
   const { updatePassword, signOut } = useAuth();
   const [password, setPassword] = useState("");
@@ -85,6 +87,7 @@ export default function ResetPasswordScreen() {
           isPassword
           value={password}
           onChangeText={setPassword}
+          maxLength={PASSWORD_MAX_LENGTH}
         />
 
         <AuthTextField
@@ -94,6 +97,7 @@ export default function ResetPasswordScreen() {
           isPassword
           value={confirmPassword}
           onChangeText={setConfirmPassword}
+          maxLength={PASSWORD_MAX_LENGTH}
         />
 
         <Pressable

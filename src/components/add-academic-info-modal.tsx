@@ -20,6 +20,9 @@ import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/providers/toast-provider";
 
+const TITLE_MAX_LENGTH = 60;
+const NOTES_MAX_LENGTH = 100;
+
 export type AcademicInfoItem = {
   id: string;
   category: AcademicInfoCategory;
@@ -163,7 +166,11 @@ export function AddAcademicInfoModal({
           placeholder="e.g. New GE Elective Added"
           placeholderTextColor="#8b8f99"
           style={styles.textInput}
+          maxLength={TITLE_MAX_LENGTH}
         />
+        <ThemedText type="small" style={styles.charCount}>
+          {title.length}/{TITLE_MAX_LENGTH}
+        </ThemedText>
 
         <ThemedText type="small" style={styles.fieldLabel}>
           Category
@@ -214,7 +221,11 @@ export function AddAcademicInfoModal({
           placeholderTextColor="#8b8f99"
           style={[styles.textInput, styles.multilineInput]}
           multiline
+          maxLength={NOTES_MAX_LENGTH}
         />
+        <ThemedText type="small" style={styles.charCount}>
+          {content.length}/{NOTES_MAX_LENGTH}
+        </ThemedText>
 
         <Pressable onPress={() => setIsPinned((v) => !v)} style={styles.pinRow}>
           <Ionicons
@@ -319,4 +330,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   deleteButtonText: { color: "#dc2626" },
+  charCount: {
+    color: "#8b8f99",
+    textAlign: "right",
+    marginTop: Spacing.half,
+  },
 });

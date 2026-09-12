@@ -15,6 +15,9 @@ import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 
+const DOCUMENT_TYPE_MAX_LENGTH = 60;
+const OFFICE_MAX_LENGTH = 80;
+
 type AddRequestModalProps = {
   visible: boolean;
   onClose: () => void;
@@ -95,8 +98,11 @@ export function AddRequestModal({
           placeholder="e.g. Transcript of Records"
           placeholderTextColor="#8b8f99"
           style={styles.textInput}
+          maxLength={DOCUMENT_TYPE_MAX_LENGTH}
         />
-
+        <ThemedText type="small" style={styles.charCount}>
+          {documentType.length}/{DOCUMENT_TYPE_MAX_LENGTH}
+        </ThemedText>
         <ThemedText type="small" style={styles.fieldLabel}>
           Office (optional)
         </ThemedText>
@@ -106,8 +112,11 @@ export function AddRequestModal({
           placeholder="e.g. Registrar's Office"
           placeholderTextColor="#8b8f99"
           style={styles.textInput}
+          maxLength={OFFICE_MAX_LENGTH}
         />
-
+        <ThemedText type="small" style={styles.charCount}>
+          {office.length}/{OFFICE_MAX_LENGTH}
+        </ThemedText>
         <Pressable
           onPress={handleSave}
           disabled={!canSubmit}
@@ -157,4 +166,9 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.6 },
   saveButtonText: { color: "#ffffff", fontSize: 15 },
+  charCount: {
+    color: "#8b8f99",
+    textAlign: "right",
+    marginTop: Spacing.half,
+  },
 });

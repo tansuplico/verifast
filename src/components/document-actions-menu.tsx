@@ -16,6 +16,8 @@ import { supabase } from "@/lib/supabase";
 import { useToast } from "@/providers/toast-provider";
 import type { DocumentRow } from "@/types/documents";
 
+const DOCUMENT_NAME_MAX_LENGTH = 60;
+
 type DocumentActionsMenuProps = {
   visible: boolean;
   document: DocumentRow | null;
@@ -240,7 +242,11 @@ export function DocumentActionsMenu({
             placeholderTextColor="#8b8f99"
             style={styles.textInput}
             autoFocus
+            maxLength={DOCUMENT_NAME_MAX_LENGTH}
           />
+          <ThemedText type="small" style={styles.charCount}>
+            {newName.length}/{DOCUMENT_NAME_MAX_LENGTH}
+          </ThemedText>
 
           <Pressable
             onPress={handleRenameSave}
@@ -422,5 +428,10 @@ const styles = StyleSheet.create({
   colorSwatchSelected: {
     borderWidth: 3,
     borderColor: "#1a1c20",
+  },
+  charCount: {
+    color: "#8b8f99",
+    textAlign: "right",
+    marginTop: Spacing.half,
   },
 });

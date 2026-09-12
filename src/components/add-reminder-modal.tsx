@@ -28,6 +28,8 @@ export type EditableReminder = {
   dueDate: string;
 };
 
+const TITLE_MAX_LENGTH = 60;
+
 type AddReminderModalProps = {
   visible: boolean;
   onClose: () => void;
@@ -196,7 +198,11 @@ export function AddReminderModal({
           placeholder="e.g. Submit Good Moral Certificate"
           placeholderTextColor="#8b8f99"
           style={styles.textInput}
+          maxLength={TITLE_MAX_LENGTH}
         />
+        <ThemedText type="small" style={styles.charCount}>
+          {title.length}/{TITLE_MAX_LENGTH}
+        </ThemedText>
 
         <ThemedText type="small" style={styles.fieldLabel}>
           Category
@@ -355,4 +361,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   deleteButtonText: { color: "#dc2626" },
+  charCount: {
+    color: "#8b8f99",
+    textAlign: "right",
+    marginTop: Spacing.half,
+  },
 });

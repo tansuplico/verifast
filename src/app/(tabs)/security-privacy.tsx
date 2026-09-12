@@ -20,6 +20,8 @@ import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
 
+const PASSWORD_MAX_LENGTH = 72;
+
 function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
@@ -155,6 +157,7 @@ export default function SecurityPrivacyScreen() {
                   placeholderTextColor="#a5a9b1"
                   secureTextEntry={!showCurrent}
                   style={styles.input}
+                  maxLength={PASSWORD_MAX_LENGTH}
                 />
                 <Pressable
                   hitSlop={8}
@@ -186,6 +189,7 @@ export default function SecurityPrivacyScreen() {
                   placeholderTextColor="#a5a9b1"
                   secureTextEntry={!showNew}
                   style={styles.input}
+                  maxLength={PASSWORD_MAX_LENGTH}
                 />
                 <Pressable hitSlop={8} onPress={() => setShowNew((v) => !v)}>
                   <Ionicons

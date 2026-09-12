@@ -20,6 +20,8 @@ import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
 
+const SEARCH_QUERY_MAX_LENGTH = 50;
+
 const RECENT_SEARCHES_KEY = "recent_searches";
 const MAX_RECENT_SEARCHES = 5;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -227,6 +229,7 @@ export default function SearchScreen() {
           placeholderTextColor="#8b8f99"
           style={styles.searchInput}
           returnKeyType="search"
+          maxLength={SEARCH_QUERY_MAX_LENGTH}
         />
         {query.length > 0 && (
           <Pressable hitSlop={8} onPress={() => setQuery("")}>

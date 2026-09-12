@@ -27,6 +27,13 @@ type DocumentRow = {
   created_at: string;
 };
 
+type SubscriptionStatus =
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "canceled"
+  | "expired";
+
 function formatFileSize(bytes: number | null): string {
   if (!bytes) return "";
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -47,16 +54,26 @@ export default function BackupRecoveryScreen() {
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [subscriptionStatus, setSubscriptionStatus] =
+    useState<SubscriptionStatus | null>(null);
 
   const loadDocuments = useCallback(async () => {
     if (!session) return;
     setIsLoading(true);
-    const { data } = await supabase
-      .from("documents")
-      .select("id, name, file_path, mime_type, file_size, created_at")
-      .eq("user_id", session.user.id)
-      .order("created_at", { ascending: false });
-    setDocuments(data ?? []);
+    const [documentsResult, subscriptionResult] = await Promise.all([
+      supabase
+        .from("documents")
+        .select("id, name, file_path, mime_type, file_size, created_at")
+        .eq("user_id", session.user.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("subscriptions")
+        .select("status")
+        .eq("user_id", session.user.id)
+        .single(),
+    ]);
+    setDocuments(documentsResult.data ?? []);
+    setSubscriptionStatus(subscriptionResult.data?.status ?? null);
     setIsLoading(false);
   }, [session]);
 
@@ -112,6 +129,11 @@ export default function BackupRecoveryScreen() {
     }
   }
 
+  const isPro =
+    subscriptionStatus === "trialing" ||
+    subscriptionStatus === "active" ||
+    subscriptionStatus === "past_due";
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
@@ -139,78 +161,111 @@ export default function BackupRecoveryScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryIcon}>
-            <Ionicons name="cloud-done-outline" size={22} color="#0d9488" />
-          </View>
-          <View style={{ flex: 1 }}>
+        {isLoading ? (
+          <ActivityIndicator
+            color="#0d9488"
+            style={{ marginVertical: Spacing.four }}
+          />
+        ) : !isPro ? (
+          <View style={[styles.card, styles.lockedCard]}>
+            <View style={styles.summaryIcon}>
+              <Ionicons name="lock-closed-outline" size={22} color="#0d9488" />
+            </View>
             <ThemedText type="smallBold" style={styles.summaryTitle}>
-              {documents.length}{" "}
-              {documents.length === 1 ? "document" : "documents"} backed up
+              Backup and Recovery is a Pro feature
             </ThemedText>
             <ThemedText type="small" style={styles.summarySubtext}>
-              {formatFileSize(totalSize) || "0 KB"} stored in your account
+              Upgrade to VeriFast Pro to export and share your documents.
             </ThemedText>
+            <Pressable
+              style={styles.upgradeButton}
+              onPress={() => router.push("/subscription")}
+            >
+              <ThemedText type="smallBold" style={styles.upgradeButtonText}>
+                Upgrade to Pro
+              </ThemedText>
+            </Pressable>
           </View>
-        </View>
-
-        <View style={styles.card}>
-          <ThemedText type="small" style={styles.sectionLabel}>
-            YOUR DOCUMENTS
-          </ThemedText>
-
-          {isLoading ? (
-            <ActivityIndicator
-              color="#0d9488"
-              style={{ marginVertical: Spacing.four }}
-            />
-          ) : documents.length === 0 ? (
-            <ThemedText type="small" style={styles.emptyText}>
-              You haven't uploaded any documents yet.
-            </ThemedText>
-          ) : (
-            documents.map((doc, index) => (
-              <View
-                key={doc.id}
-                style={[
-                  styles.docRow,
-                  index === documents.length - 1 && styles.docRowLast,
-                ]}
-              >
-                <Ionicons
-                  name="document-text-outline"
-                  size={20}
-                  color="#60646C"
-                />
-                <View style={{ flex: 1 }}>
-                  <ThemedText
-                    type="smallBold"
-                    style={styles.docName}
-                    numberOfLines={1}
-                  >
-                    {doc.name}
-                  </ThemedText>
-                  <ThemedText type="small" style={styles.docMeta}>
-                    {formatFileSize(doc.file_size)} ·{" "}
-                    {formatShortDate(doc.created_at)}
-                  </ThemedText>
-                </View>
-                <Pressable
-                  hitSlop={8}
-                  disabled={exportingId === doc.id}
-                  onPress={() => handleShare(doc)}
-                  style={styles.shareButton}
-                >
-                  {exportingId === doc.id ? (
-                    <ActivityIndicator size="small" color="#0d9488" />
-                  ) : (
-                    <Ionicons name="share-outline" size={18} color="#0d9488" />
-                  )}
-                </Pressable>
+        ) : (
+          <>
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryIcon}>
+                <Ionicons name="cloud-done-outline" size={22} color="#0d9488" />
               </View>
-            ))
-          )}
-        </View>
+              <View style={{ flex: 1 }}>
+                <ThemedText type="smallBold" style={styles.summaryTitle}>
+                  {documents.length}{" "}
+                  {documents.length === 1 ? "document" : "documents"} backed up
+                </ThemedText>
+                <ThemedText type="small" style={styles.summarySubtext}>
+                  {formatFileSize(totalSize) || "0 KB"} stored in your account
+                </ThemedText>
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <ThemedText type="small" style={styles.sectionLabel}>
+                YOUR DOCUMENTS
+              </ThemedText>
+
+              {isLoading ? (
+                <ActivityIndicator
+                  color="#0d9488"
+                  style={{ marginVertical: Spacing.four }}
+                />
+              ) : documents.length === 0 ? (
+                <ThemedText type="small" style={styles.emptyText}>
+                  You haven't uploaded any documents yet.
+                </ThemedText>
+              ) : (
+                documents.map((doc, index) => (
+                  <View
+                    key={doc.id}
+                    style={[
+                      styles.docRow,
+                      index === documents.length - 1 && styles.docRowLast,
+                    ]}
+                  >
+                    <Ionicons
+                      name="document-text-outline"
+                      size={20}
+                      color="#60646C"
+                    />
+                    <View style={{ flex: 1 }}>
+                      <ThemedText
+                        type="smallBold"
+                        style={styles.docName}
+                        numberOfLines={1}
+                      >
+                        {doc.name}
+                      </ThemedText>
+                      <ThemedText type="small" style={styles.docMeta}>
+                        {formatFileSize(doc.file_size)} ·{" "}
+                        {formatShortDate(doc.created_at)}
+                      </ThemedText>
+                    </View>
+                    <Pressable
+                      hitSlop={8}
+                      disabled={exportingId === doc.id}
+                      onPress={() => handleShare(doc)}
+                      style={styles.shareButton}
+                    >
+                      {exportingId === doc.id ? (
+                        <ActivityIndicator size="small" color="#0d9488" />
+                      ) : (
+                        <Ionicons
+                          name="share-outline"
+                          size={18}
+                          color="#0d9488"
+                        />
+                      )}
+                    </Pressable>
+                  </View>
+                ))
+              )}
+            </View>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -294,4 +349,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  lockedCard: {
+    flexDirection: "column",
+    alignItems: "center",
+    textAlign: "center",
+    paddingVertical: Spacing.six ?? Spacing.four * 1.5,
+    gap: Spacing.two,
+  },
+  upgradeButton: {
+    backgroundColor: "#0d9488",
+    borderRadius: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: Spacing.two,
+  },
+  upgradeButtonText: { color: "#ffffff" },
 });

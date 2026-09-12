@@ -41,6 +41,15 @@ const CATEGORY_ORDER: FolderCategory[] = [
   "forms",
 ];
 
+const FREE_DOCUMENT_LIMIT = 15;
+
+type SubscriptionStatus =
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "canceled"
+  | "expired";
+
 const FOLDER_STYLE: Record<
   FolderCategory,
   { icon: keyof typeof Ionicons.glyphMap; color: string }
@@ -128,24 +137,33 @@ export default function DocumentsScreen() {
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [actionsDoc, setActionsDoc] = useState<DocumentRow | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] =
+    useState<SubscriptionStatus | null>(null);
+
   const loadDocuments = useCallback(
     async (isRefresh = false) => {
       if (!session) return;
       isRefresh ? setIsRefreshing(true) : setIsLoading(true);
 
-      const [foldersResult, documentsResult] = await Promise.all([
-        supabase
-          .from("folders")
-          .select("id, category, name")
-          .eq("user_id", session.user.id),
-        supabase
-          .from("documents")
-          .select(
-            "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color",
-          )
-          .eq("user_id", session.user.id)
-          .order("created_at", { ascending: false }),
-      ]);
+      const [foldersResult, documentsResult, subscriptionResult] =
+        await Promise.all([
+          supabase
+            .from("folders")
+            .select("id, category, name")
+            .eq("user_id", session.user.id),
+          supabase
+            .from("documents")
+            .select(
+              "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color",
+            )
+            .eq("user_id", session.user.id)
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("subscriptions")
+            .select("status")
+            .eq("user_id", session.user.id)
+            .single(),
+        ]);
 
       if (foldersResult.error || documentsResult.error) {
         console.error(
@@ -157,6 +175,7 @@ export default function DocumentsScreen() {
         setLoadError(false);
         setFolders(foldersResult.data ?? []);
         setDocuments(documentsResult.data ?? []);
+        setSubscriptionStatus(subscriptionResult.data?.status ?? null);
       }
 
       isRefresh ? setIsRefreshing(false) : setIsLoading(false);
@@ -257,6 +276,11 @@ export default function DocumentsScreen() {
       return true;
     });
   }, [documents, searchQuery, activeFolderId]);
+
+  const isPro =
+    subscriptionStatus === "trialing" ||
+    subscriptionStatus === "active" ||
+    subscriptionStatus === "past_due";
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -498,7 +522,26 @@ export default function DocumentsScreen() {
         )}
       </ScrollView>
 
-      <Pressable style={styles.fab} onPress={() => setIsAddModalVisible(true)}>
+      <Pressable
+        style={styles.fab}
+        onPress={() => {
+          if (!isPro && documents.length >= FREE_DOCUMENT_LIMIT) {
+            Alert.alert(
+              "Document limit reached",
+              `Free accounts can store up to ${FREE_DOCUMENT_LIMIT} documents. Upgrade to VeriFast Pro for unlimited storage.`,
+              [
+                { text: "Not Now", style: "cancel" },
+                {
+                  text: "Upgrade",
+                  onPress: () => router.push("/subscription"),
+                },
+              ],
+            );
+            return;
+          }
+          setIsAddModalVisible(true);
+        }}
+      >
         <Ionicons name="add" size={26} color="#ffffff" />
       </Pressable>
 

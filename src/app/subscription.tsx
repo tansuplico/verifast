@@ -16,9 +16,6 @@ type SubscriptionRow = {
   current_period_end: string | null;
 };
 
-// TODO: mockup shows P699/year - the feasibility study docs and the old
-// placeholder both say P90/year. Using the mockup value for now; flagged
-// for Tristan to confirm which is correct.
 const ANNUAL_PRICE = "\u20b190";
 
 const INCLUDED_FEATURES = [

@@ -10,7 +10,7 @@ if (!dsn) {
 
 Sentry.init({
   dsn,
-  enabled: Boolean(dsn),
+  enabled: Boolean(dsn) && !__DEV__,
   debug: __DEV__,
   environment: __DEV__ ? "development" : "production",
   // Deliberately minimal: no tracing, profiling, or session replay

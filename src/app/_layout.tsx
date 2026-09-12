@@ -1,8 +1,12 @@
+import "@/lib/sentry"; // side-effect import — runs Sentry.init() before anything else
+
+import * as Sentry from "@sentry/react-native";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useColorScheme } from "react-native";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { CrashBoundary } from "@/components/crash-boundary";
 import { AuthProvider, useAuth } from "@/providers/auth-provider";
 import { ToastProvider } from "@/providers/toast-provider";
 
@@ -12,19 +16,25 @@ export const unstable_settings = {
   initialRouteName: "(auth)",
 };
 
-export default function RootLayout() {
+function RootLayout() {
   const colorScheme = useColorScheme();
   return (
-    <AuthProvider>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-        <ToastProvider>
-          <AnimatedSplashOverlay />
-          <RootNavigator />
-        </ToastProvider>
-      </ThemeProvider>
-    </AuthProvider>
+    <CrashBoundary>
+      <AuthProvider>
+        <ThemeProvider
+          value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+        >
+          <ToastProvider>
+            <AnimatedSplashOverlay />
+            <RootNavigator />
+          </ToastProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    </CrashBoundary>
   );
 }
+
+export default Sentry.wrap(RootLayout);
 
 function RootNavigator() {
   const { session, isLoading, isPasswordRecovery, needsEmailOtpChallenge } =

@@ -126,13 +126,13 @@ export default function MfaChallengeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <AuthTextField
-          label="6-digit code"
+          label="8-digit code"
           icon="keypad-outline"
           placeholder="123456"
           keyboardType="number-pad"
           value={code}
           onChangeText={setCode}
-          maxLength={6}
+          maxLength={8}
         />
 
         <View style={styles.rememberRow}>

@@ -9,6 +9,8 @@ import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
+import { makeRedirectUri } from "expo-auth-session";
+import * as WebBrowser from "expo-web-browser";
 
 type SubscriptionRow = {
   status: "trialing" | "active" | "past_due" | "canceled" | "expired";
@@ -92,6 +94,19 @@ export default function SubscriptionScreen() {
 
   const trial = trialBannerCopy(subscription);
   const cta = ctaCopy(subscription);
+
+  async function handleUpgrade() {
+    const { data, error } = await supabase.functions.invoke("create-checkout");
+    if (error || !data?.checkout_url) {
+      Alert.alert(
+        "Something went wrong",
+        "Couldn't start checkout. Please try again.",
+      );
+      return;
+    }
+    await WebBrowser.openAuthSessionAsync(data.checkout_url, makeRedirectUri());
+    loadSubscription();
+  }
 
   return (
     <View style={styles.container}>
@@ -181,7 +196,7 @@ export default function SubscriptionScreen() {
         </ScrollView>
 
         <View style={styles.ctaWrapper}>
-          <Pressable onPress={() => showComingSoon("Billing")}>
+          <Pressable onPress={handleUpgrade}>
             <LinearGradient
               colors={["#14b8a6", "#0f766e"]}
               start={{ x: 0, y: 0 }}

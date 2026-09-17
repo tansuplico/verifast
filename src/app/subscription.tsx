@@ -36,25 +36,109 @@ function daysLeft(dateString: string) {
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
+function formatDate(dateString: string) {
+  return new Date(dateString).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
 
-function trialBannerCopy(sub: SubscriptionRow | null) {
-  if (sub?.status === "trialing" && sub.trial_ends_at) {
-    const remaining = daysLeft(sub.trial_ends_at);
-    return {
-      title:
-        remaining > 0
-          ? `${remaining} days left in your trial`
-          : "Trial ends today",
-      detail: "No payment needed until your trial ends.",
-    };
+type BannerTone = "trial" | "success" | "warning";
+
+const BANNER_TONE_COLORS: Record<
+  BannerTone,
+  { bg: string; border: string; icon: string; title: string; detail: string }
+> = {
+  trial: {
+    bg: "#fef9e7",
+    border: "#f7e3ad",
+    icon: "#f59e0b",
+    title: "#b45309",
+    detail: "#c98a1f",
+  },
+  success: {
+    bg: "#ecfdf7",
+    border: "#99e6d9",
+    icon: "#0d9488",
+    title: "#0f3d33",
+    detail: "#0d9488",
+  },
+  warning: {
+    bg: "#fef2f2",
+    border: "#fecaca",
+    icon: "#dc2626",
+    title: "#991b1b",
+    detail: "#b91c1c",
+  },
+};
+
+function statusBannerCopy(sub: SubscriptionRow | null) {
+  switch (sub?.status) {
+    case "trialing": {
+      if (sub.trial_ends_at) {
+        const remaining = daysLeft(sub.trial_ends_at);
+        return {
+          icon: "gift" as const,
+          tone: "trial" as const,
+          title:
+            remaining > 0
+              ? `${remaining} days left in your trial`
+              : "Trial ends today",
+          detail: "No payment needed until your trial ends.",
+        };
+      }
+      return {
+        icon: "gift" as const,
+        tone: "trial" as const,
+        title: "45-day free trial",
+        detail: "No payment needed until your trial ends.",
+      };
+    }
+    case "active":
+      return {
+        icon: "checkmark-circle" as const,
+        tone: "success" as const,
+        title: "You're on VeriFast Pro",
+        detail: sub.current_period_end
+          ? `Renews on ${formatDate(sub.current_period_end)}`
+          : "Your plan is active.",
+      };
+    case "past_due":
+      return {
+        icon: "alert-circle" as const,
+        tone: "warning" as const,
+        title: "Payment failed",
+        detail: "Update your payment method to keep your Pro access.",
+      };
+    case "canceled":
+      return {
+        icon: "close-circle" as const,
+        tone: "warning" as const,
+        title: "Plan canceled",
+        detail: sub.current_period_end
+          ? `Pro access ends ${formatDate(sub.current_period_end)}`
+          : "Resubscribe anytime to get Pro access back.",
+      };
+    case "expired":
+      return {
+        icon: "close-circle" as const,
+        tone: "warning" as const,
+        title: "Plan expired",
+        detail: "Resubscribe to get your Pro access back.",
+      };
+    default:
+      return {
+        icon: "gift" as const,
+        tone: "trial" as const,
+        title: "45-day free trial",
+        detail: "No payment needed until your trial ends.",
+      };
   }
-  return {
-    title: "45-day free trial",
-    detail: "No payment needed until your trial ends.",
-  };
 }
 
 function ctaCopy(sub: SubscriptionRow | null) {
@@ -92,7 +176,8 @@ export default function SubscriptionScreen() {
     }, [loadSubscription]),
   );
 
-  const trial = trialBannerCopy(subscription);
+  const banner = statusBannerCopy(subscription);
+  const bannerColors = BANNER_TONE_COLORS[banner.tone];
   const cta = ctaCopy(subscription);
 
   async function handleUpgrade() {
@@ -182,16 +267,35 @@ export default function SubscriptionScreen() {
             </ThemedText>
           </View>
 
-          <View style={styles.trialBanner}>
-            <View style={styles.trialIconBadge}>
-              <Ionicons name="gift" size={16} color="#ffffff" />
+          <View
+            style={[
+              styles.trialBanner,
+              {
+                backgroundColor: bannerColors.bg,
+                borderColor: bannerColors.border,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.trialIconBadge,
+                { backgroundColor: bannerColors.icon },
+              ]}
+            >
+              <Ionicons name={banner.icon} size={16} color="#ffffff" />
             </View>
             <View style={styles.trialText}>
-              <ThemedText type="smallBold" style={styles.trialTitle}>
-                {trial.title}
+              <ThemedText
+                type="smallBold"
+                style={[styles.trialTitle, { color: bannerColors.title }]}
+              >
+                {banner.title}
               </ThemedText>
-              <ThemedText type="small" style={styles.trialDetail}>
-                {trial.detail}
+              <ThemedText
+                type="small"
+                style={[styles.trialDetail, { color: bannerColors.detail }]}
+              >
+                {banner.detail}
               </ThemedText>
             </View>
           </View>

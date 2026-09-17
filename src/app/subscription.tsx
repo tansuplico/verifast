@@ -108,6 +108,25 @@ export default function SubscriptionScreen() {
     loadSubscription();
   }
 
+  // Only these statuses have nothing left to pay for right now. Everyone else
+  // (past_due, canceled, expired, or no row yet) needs a fresh checkout.
+  function requiresCheckout(sub: SubscriptionRow | null) {
+    switch (sub?.status) {
+      case "trialing":
+      case "active":
+        return false;
+      default:
+        return true;
+    }
+  }
+  function handleCtaPress() {
+    if (requiresCheckout(subscription)) {
+      handleUpgrade();
+    } else {
+      showComingSoon("Billing management");
+    }
+  }
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -196,7 +215,7 @@ export default function SubscriptionScreen() {
         </ScrollView>
 
         <View style={styles.ctaWrapper}>
-          <Pressable onPress={handleUpgrade}>
+          <Pressable onPress={handleCtaPress}>
             <LinearGradient
               colors={["#14b8a6", "#0f766e"]}
               start={{ x: 0, y: 0 }}

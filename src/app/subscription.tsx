@@ -169,6 +169,9 @@ function ctaCopy(sub: SubscriptionRow | null) {
       return "Manage Billing";
     case "past_due":
       return "Update Payment Method";
+    case "canceled":
+    case "expired":
+      return "Resubscribe";
     default:
       return "Start Free Trial";
   }
@@ -422,6 +425,19 @@ export default function SubscriptionScreen() {
               )}
             </LinearGradient>
           </Pressable>
+
+          {!isLoading && !hasError && subscription?.status === "trialing" && (
+            <Pressable
+              onPress={handleUpgrade}
+              disabled={isCanceling}
+              hitSlop={8}
+              style={styles.subscribeNowLink}
+            >
+              <ThemedText type="small" style={styles.subscribeNowText}>
+                Don't want to wait? Subscribe now instead
+              </ThemedText>
+            </Pressable>
+          )}
         </View>
       </SafeAreaView>
     </View>
@@ -572,4 +588,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   ctaText: { color: "#ffffff", fontSize: 16 },
+  subscribeNowLink: {
+    alignItems: "center",
+    paddingTop: Spacing.two,
+    paddingBottom: Spacing.one,
+  },
+  subscribeNowText: {
+    color: "#0f766e",
+    textDecorationLine: "underline",
+  },
 });

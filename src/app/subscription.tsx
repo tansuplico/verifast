@@ -2,7 +2,14 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
@@ -48,7 +55,7 @@ function showComingSoon(feature: string) {
   Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
 
-type BannerTone = "trial" | "success" | "warning";
+type BannerTone = "trial" | "success" | "warning" | "neutral" | "error";
 
 const BANNER_TONE_COLORS: Record<
   BannerTone,
@@ -74,6 +81,20 @@ const BANNER_TONE_COLORS: Record<
     icon: "#dc2626",
     title: "#991b1b",
     detail: "#b91c1c",
+  },
+  neutral: {
+    bg: "#f3f4f6",
+    border: "#e5e7eb",
+    icon: "#9ca3af",
+    title: "#374151",
+    detail: "#6b7280",
+  },
+  error: {
+    bg: "#fef2f2",
+    border: "#fecaca",
+    icon: "#dc2626",
+    title: "#991b1b",
+    detail: "#2563eb",
   },
 };
 
@@ -160,14 +181,26 @@ export default function SubscriptionScreen() {
     null,
   );
 
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+
   const loadSubscription = useCallback(async () => {
     if (!session) return;
-    const { data } = await supabase
+    setIsLoading(true);
+    const { data, error } = await supabase
       .from("subscriptions")
       .select("status, trial_ends_at, current_period_end")
       .eq("user_id", session.user.id)
       .single();
+    if (error) {
+      console.error("subscription: failed to load subscription row", error);
+      setHasError(true);
+      setIsLoading(false);
+      return;
+    }
+    setHasError(false);
     setSubscription(data ?? null);
+    setIsLoading(false);
   }, [session]);
 
   useFocusEffect(
@@ -176,7 +209,21 @@ export default function SubscriptionScreen() {
     }, [loadSubscription]),
   );
 
-  const banner = statusBannerCopy(subscription);
+  const banner = isLoading
+    ? {
+        icon: "time-outline" as const,
+        tone: "neutral" as const,
+        title: "Checking your plan...",
+        detail: "",
+      }
+    : hasError
+      ? {
+          icon: "refresh-circle" as const,
+          tone: "error" as const,
+          title: "Couldn't load your plan",
+          detail: "Tap to retry",
+        }
+      : statusBannerCopy(subscription);
   const bannerColors = BANNER_TONE_COLORS[banner.tone];
   const cta = ctaCopy(subscription);
 
@@ -204,7 +251,9 @@ export default function SubscriptionScreen() {
         return true;
     }
   }
+
   function handleCtaPress() {
+    if (isLoading || hasError) return;
     if (requiresCheckout(subscription)) {
       handleUpgrade();
     } else {
@@ -228,7 +277,6 @@ export default function SubscriptionScreen() {
           </ThemedText>
           <View style={styles.headerSpacer} />
         </View>
-
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -267,7 +315,9 @@ export default function SubscriptionScreen() {
             </ThemedText>
           </View>
 
-          <View
+          <Pressable
+            disabled={!hasError}
+            onPress={loadSubscription}
             style={[
               styles.trialBanner,
               {
@@ -298,8 +348,7 @@ export default function SubscriptionScreen() {
                 {banner.detail}
               </ThemedText>
             </View>
-          </View>
-
+          </Pressable>
           <View style={styles.featuresCard}>
             <ThemedText type="small" style={styles.featuresLabel}>
               WHAT IS INCLUDED
@@ -317,18 +366,27 @@ export default function SubscriptionScreen() {
             ))}
           </View>
         </ScrollView>
-
         <View style={styles.ctaWrapper}>
-          <Pressable onPress={handleCtaPress}>
+          <Pressable
+            onPress={handleCtaPress}
+            disabled={isLoading || hasError}
+            style={
+              isLoading || hasError ? styles.ctaWrapperDisabled : undefined
+            }
+          >
             <LinearGradient
               colors={["#14b8a6", "#0f766e"]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.ctaButton}
             >
-              <ThemedText type="smallBold" style={styles.ctaText}>
-                {cta}
-              </ThemedText>
+              {isLoading ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <ThemedText type="smallBold" style={styles.ctaText}>
+                  {hasError ? "Unavailable" : cta}
+                </ThemedText>
+              )}
             </LinearGradient>
           </Pressable>
         </View>
@@ -471,6 +529,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.two,
     paddingBottom: Spacing.two,
+  },
+  ctaWrapperDisabled: {
+    opacity: 0.6,
   },
   ctaButton: {
     borderRadius: Spacing.three,

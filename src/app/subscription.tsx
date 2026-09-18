@@ -181,6 +181,8 @@ export default function SubscriptionScreen() {
     null,
   );
 
+  const [isCanceling, setIsCanceling] = useState(false);
+
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
@@ -253,12 +255,41 @@ export default function SubscriptionScreen() {
   }
 
   function handleCtaPress() {
-    if (isLoading || hasError) return;
+    if (isLoading || hasError || isCanceling) return;
     if (requiresCheckout(subscription)) {
       handleUpgrade();
     } else {
-      showComingSoon("Billing management");
+      confirmCancelSubscription();
     }
+  }
+
+  function confirmCancelSubscription() {
+    Alert.alert(
+      "Cancel plan?",
+      "You'll lose Pro access right away. You can resubscribe anytime, but this can't be undone from here.",
+      [
+        { text: "Keep plan", style: "cancel" },
+        {
+          text: "Cancel plan",
+          style: "destructive",
+          onPress: handleCancelSubscription,
+        },
+      ],
+    );
+  }
+
+  async function handleCancelSubscription() {
+    setIsCanceling(true);
+    const { error } = await supabase.functions.invoke("cancel-subscription");
+    setIsCanceling(false);
+    if (error) {
+      Alert.alert(
+        "Something went wrong",
+        "Couldn't cancel your plan. Please try again.",
+      );
+      return;
+    }
+    await loadSubscription();
   }
 
   return (
@@ -369,9 +400,11 @@ export default function SubscriptionScreen() {
         <View style={styles.ctaWrapper}>
           <Pressable
             onPress={handleCtaPress}
-            disabled={isLoading || hasError}
+            disabled={isLoading || hasError || isCanceling}
             style={
-              isLoading || hasError ? styles.ctaWrapperDisabled : undefined
+              isLoading || hasError || isCanceling
+                ? styles.ctaWrapperDisabled
+                : undefined
             }
           >
             <LinearGradient
@@ -380,7 +413,7 @@ export default function SubscriptionScreen() {
               end={{ x: 1, y: 0 }}
               style={styles.ctaButton}
             >
-              {isLoading ? (
+              {isLoading || isCanceling ? (
                 <ActivityIndicator color="#ffffff" />
               ) : (
                 <ThemedText type="smallBold" style={styles.ctaText}>

@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -240,6 +241,18 @@ export default function SubscriptionScreen() {
         "Couldn't start checkout. Please try again.",
       );
       return;
+    }
+    if (Platform.OS === "android") {
+      // expo-web-browser can leave a stale redirect-handler flag set on
+      // Android after a completed openAuthSessionAsync call. The *next*
+      // call in the same app session then throws "auth session is in an
+      // invalid state with a redirect handler set when it should not be."
+      // Clearing it first is harmless even when nothing needs dismissing.
+      try {
+        await WebBrowser.dismissAuthSession();
+      } catch {
+        // No session was open - nothing to clean up.
+      }
     }
     await WebBrowser.openAuthSessionAsync(data.checkout_url, makeRedirectUri());
     loadSubscription();

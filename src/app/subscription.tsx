@@ -186,6 +186,7 @@ export default function SubscriptionScreen() {
   );
 
   const [isCanceling, setIsCanceling] = useState(false);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
@@ -234,8 +235,11 @@ export default function SubscriptionScreen() {
   const cta = ctaCopy(subscription);
 
   async function handleUpgrade() {
+    if (isCheckingOut) return;
+    setIsCheckingOut(true);
     const { data, error } = await supabase.functions.invoke("create-checkout");
     if (error || !data?.checkout_url) {
+      setIsCheckingOut(false);
       Alert.alert(
         "Something went wrong",
         "Couldn't start checkout. Please try again.",
@@ -243,18 +247,14 @@ export default function SubscriptionScreen() {
       return;
     }
     if (Platform.OS === "android") {
-      // expo-web-browser can leave a stale redirect-handler flag set on
-      // Android after a completed openAuthSessionAsync call. The *next*
-      // call in the same app session then throws "auth session is in an
-      // invalid state with a redirect handler set when it should not be."
-      // Clearing it first is harmless even when nothing needs dismissing.
       try {
-        await WebBrowser.dismissAuthSession();
+        WebBrowser.dismissAuthSession();
       } catch {
         // No session was open - nothing to clean up.
       }
     }
     await WebBrowser.openAuthSessionAsync(data.checkout_url, makeRedirectUri());
+    setIsCheckingOut(false);
     loadSubscription();
   }
 
@@ -271,7 +271,7 @@ export default function SubscriptionScreen() {
   }
 
   function handleCtaPress() {
-    if (isLoading || hasError || isCanceling) return;
+    if (isLoading || hasError || isCanceling || isCheckingOut) return;
     if (requiresCheckout(subscription)) {
       handleUpgrade();
     } else {
@@ -416,9 +416,9 @@ export default function SubscriptionScreen() {
         <View style={styles.ctaWrapper}>
           <Pressable
             onPress={handleCtaPress}
-            disabled={isLoading || hasError || isCanceling}
+            disabled={isLoading || hasError || isCanceling || isCheckingOut}
             style={
-              isLoading || hasError || isCanceling
+              isLoading || hasError || isCanceling || isCheckingOut
                 ? styles.ctaWrapperDisabled
                 : undefined
             }
@@ -429,7 +429,7 @@ export default function SubscriptionScreen() {
               end={{ x: 1, y: 0 }}
               style={styles.ctaButton}
             >
-              {isLoading || isCanceling ? (
+              {isLoading || isCanceling || isCheckingOut ? (
                 <ActivityIndicator color="#ffffff" />
               ) : (
                 <ThemedText type="smallBold" style={styles.ctaText}>
@@ -442,7 +442,7 @@ export default function SubscriptionScreen() {
           {!isLoading && !hasError && subscription?.status === "trialing" && (
             <Pressable
               onPress={handleUpgrade}
-              disabled={isCanceling}
+              disabled={isCanceling || isCheckingOut}
               hitSlop={8}
               style={styles.subscribeNowLink}
             >

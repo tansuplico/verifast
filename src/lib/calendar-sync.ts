@@ -65,6 +65,30 @@ async function getAppCalendarId(): Promise<string> {
   return cachedCalendarId;
 }
 
+// Creates an event, retrying once against a freshly found-or-created
+// calendar if the first attempt fails. The cached calendar ID can go stale
+// mid-session if the user deletes the "VeriFast Deadlines" calendar
+// directly from the OS Calendar app - without this, every sync would keep
+// failing against that dead ID until the app was force-closed and
+// reopened (which is the only thing that clears the in-memory cache).
+async function createEventWithRetry(
+  eventData: Partial<Calendar.Event>,
+): Promise<string> {
+  const calendarId = await getAppCalendarId();
+  try {
+    return await Calendar.createEventAsync(calendarId, eventData);
+  } catch (error) {
+    cachedCalendarId = null;
+    const freshCalendarId = await getAppCalendarId();
+    if (freshCalendarId === calendarId) {
+      // Re-found the exact same calendar id, so the calendar itself
+      // wasn't the problem - retrying would just fail the same way.
+      throw error;
+    }
+    return Calendar.createEventAsync(freshCalendarId, eventData);
+  }
+}
+
 function allDayRangeForDueDate(dueDate: string) {
   // due_date is a plain Postgres `date` (e.g. "2026-11-02"). Build the range
   // from local midnight, the same way AddReminderModal parses it - not
@@ -91,7 +115,6 @@ export async function upsertReminderEvent(
   reminder: SyncableReminder,
   calendarEventId?: string | null,
 ): Promise<string> {
-  const calendarId = await getAppCalendarId();
   const { start, end } = allDayRangeForDueDate(reminder.dueDate);
 
   const eventData = {
@@ -119,7 +142,7 @@ export async function upsertReminderEvent(
     }
   }
 
-  return Calendar.createEventAsync(calendarId, eventData);
+  return createEventWithRetry(eventData);
 }
 
 // Removes a reminder's calendar event. Safe to call even if the event was

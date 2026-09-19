@@ -37,6 +37,13 @@ const UPCOMING_WINDOW_DAYS = 21;
 // still local-state-only placeholders with nothing to persist to yet.
 const CALENDAR_SYNC_STORAGE_KEY = "verifast:calendarSyncEnabled";
 
+// Shown once, the first time a user turns Calendar Sync on - after that,
+// enabling/disabling again doesn't repeat it. Tracked separately from
+// CALENDAR_SYNC_STORAGE_KEY so it still doesn't reappear even if the user
+// later turns sync off and back on.
+const CALENDAR_PRIVACY_NOTICE_STORAGE_KEY =
+  "verifast:calendarPrivacyNoticeShown";
+
 type Reminder = {
   id: string;
   title: string;
@@ -216,43 +223,11 @@ export default function DeadlinesRemindersScreen() {
     await loadReminders();
   }
 
-  async function handleCalendarSyncToggle(nextValue: boolean) {
-    if (!nextValue) {
-      const synced = reminders.filter((r) => r.calendarEventId !== null);
-
-      // Nothing synced yet - just flip it off, nothing to ask about.
-      if (synced.length === 0) {
-        setCalendarSyncEnabled(false);
-        await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
-        return;
-      }
-
-      Alert.alert(
-        "Turn off Calendar Sync?",
-        `You have ${synced.length} deadline${synced.length === 1 ? "" : "s"} on your device calendar. You can leave them there or remove them now.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Keep on Calendar",
-            onPress: async () => {
-              setCalendarSyncEnabled(false);
-              await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
-            },
-          },
-          {
-            text: "Remove from Calendar",
-            style: "destructive",
-            onPress: async () => {
-              setCalendarSyncEnabled(false);
-              await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
-              await removeAllSyncedEvents();
-            },
-          },
-        ],
-      );
-      return;
-    }
-
+  // The actual "turn sync on" work - requests permission, flips the
+  // toggle, then backfills. Split out from handleCalendarSyncToggle so the
+  // one-time privacy notice below can gate it without duplicating this
+  // logic.
+  async function enableCalendarSync() {
     const granted = await ensureCalendarPermission();
     if (!granted) {
       Alert.alert(
@@ -310,6 +285,77 @@ export default function DeadlinesRemindersScreen() {
         `${failureCount} of ${unsynced.length} deadlines couldn't be added to your calendar. Try again from Settings.`,
       );
     }
+  }
+
+  async function handleCalendarSyncToggle(nextValue: boolean) {
+    if (!nextValue) {
+      const synced = reminders.filter((r) => r.calendarEventId !== null);
+
+      // Nothing synced yet - just flip it off, nothing to ask about.
+      if (synced.length === 0) {
+        setCalendarSyncEnabled(false);
+        await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
+        return;
+      }
+
+      Alert.alert(
+        "Turn off Calendar Sync?",
+        `You have ${synced.length} deadline${synced.length === 1 ? "" : "s"} on your device calendar. You can leave them there or remove them now.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Keep on Calendar",
+            onPress: async () => {
+              setCalendarSyncEnabled(false);
+              await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
+            },
+          },
+          {
+            text: "Remove from Calendar",
+            style: "destructive",
+            onPress: async () => {
+              setCalendarSyncEnabled(false);
+              await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
+              await removeAllSyncedEvents();
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    const noticeAlreadyShown = await AsyncStorage.getItem(
+      CALENDAR_PRIVACY_NOTICE_STORAGE_KEY,
+    );
+
+    if (noticeAlreadyShown === "true") {
+      await enableCalendarSync();
+      return;
+    }
+
+    // First time this device has turned sync on: explain what it actually
+    // does before requesting permission, since reminder titles are about
+    // to leave VeriFast's own database and land in the phone's native
+    // calendar - which, depending on the user's device settings, may sync
+    // to a Google or iCloud account and become visible to any other app
+    // with calendar access.
+    Alert.alert(
+      "Add deadlines to your calendar?",
+      'This adds your deadlines to a new "VeriFast Deadlines" calendar on your phone. Depending on your device settings, that calendar may sync to your Google or iCloud account and be visible to other apps that have calendar access.',
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          onPress: async () => {
+            await AsyncStorage.setItem(
+              CALENDAR_PRIVACY_NOTICE_STORAGE_KEY,
+              "true",
+            );
+            await enableCalendarSync();
+          },
+        },
+      ],
+    );
   }
 
   return (
@@ -404,16 +450,26 @@ export default function DeadlinesRemindersScreen() {
                         {style.label}
                       </ThemedText>
                     </View>
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => showComingSoon("Reminder alerts")}
-                    >
-                      <Ionicons
-                        name="notifications-outline"
-                        size={18}
-                        color="#0d9488"
-                      />
-                    </Pressable>
+                    <View style={styles.cardIconRow}>
+                      {reminder.calendarEventId && (
+                        <Ionicons
+                          name="calendar"
+                          size={16}
+                          color="#0d9488"
+                          accessibilityLabel="Synced to your calendar"
+                        />
+                      )}
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => showComingSoon("Reminder alerts")}
+                      >
+                        <Ionicons
+                          name="notifications-outline"
+                          size={18}
+                          color="#0d9488"
+                        />
+                      </Pressable>
+                    </View>
                   </View>
 
                   <ThemedText type="smallBold" style={styles.cardTitle}>
@@ -544,6 +600,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  cardIconRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
   },
   categoryBadge: {
     flexDirection: "row",

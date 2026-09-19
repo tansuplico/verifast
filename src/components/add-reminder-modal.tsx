@@ -151,7 +151,11 @@ export function AddReminderModal({
     // Calendar sync is best-effort: a failure here (permission revoked on
     // the device, the OS calendar app being unavailable, etc.) shouldn't
     // block the reminder itself from saving, since the reminder is already
-    // safely in the database at this point.
+    // safely in the database at this point. It's surfaced via a toast
+    // rather than an Alert - it's a "heads up" the user can dismiss and
+    // keep going, not something that needs a blocking decision.
+    let calendarSyncFailed = false;
+
     if (calendarSyncEnabled) {
       try {
         const newCalendarEventId = await upsertReminderEvent(
@@ -170,14 +174,30 @@ export function AddReminderModal({
             .eq("id", savedRow.id);
         }
       } catch (calendarError) {
+        calendarSyncFailed = true;
         console.error("Failed to sync reminder to calendar", calendarError);
       }
     }
 
     setIsSaving(false);
-    showToast(editingReminder ? "Reminder updated" : "Reminder saved");
     onSaved();
     onClose();
+
+    // BottomSheet keeps its underlying <Modal> mounted for 220ms after
+    // onClose() to run its own close animation (see bottom-sheet.tsx) - a
+    // toast fired before that finishes renders in a separate layer behind
+    // the still-visible modal. This delay (with a small buffer) makes sure
+    // the sheet is actually gone before the toast appears, per the
+    // constraint documented in toast-provider.tsx.
+    setTimeout(() => {
+      showToast(
+        calendarSyncFailed
+          ? `${editingReminder ? "Reminder updated" : "Reminder saved"}, but couldn't sync to calendar`
+          : editingReminder
+            ? "Reminder updated"
+            : "Reminder saved",
+      );
+    }, 260);
   }
 
   function handleDelete() {

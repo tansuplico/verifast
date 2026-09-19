@@ -17,6 +17,7 @@ type ToggleSwitchProps = {
   onValueChange: (value: boolean) => void;
   trackColorOn?: string;
   trackColorOff?: string;
+  disabled?: boolean;
 };
 
 // Custom pill toggle: the native RN <Switch> ignores width/height styling
@@ -28,6 +29,7 @@ export function ToggleSwitch({
   onValueChange,
   trackColorOn = "#14b8a6",
   trackColorOff = "#d7dade",
+  disabled = false,
 }: ToggleSwitchProps) {
   const progress = useSharedValue(value ? 1 : 0);
 
@@ -41,6 +43,7 @@ export function ToggleSwitch({
       [0, 1],
       [trackColorOff, trackColorOn],
     ),
+    opacity: disabled ? 0.6 : 1,
   }));
 
   const thumbStyle = useAnimatedStyle(() => ({
@@ -54,10 +57,12 @@ export function ToggleSwitch({
 
   return (
     <Pressable
-      onPress={() => onValueChange(!value)}
+      onPress={() => {
+        if (!disabled) onValueChange(!value);
+      }}
       hitSlop={8}
       accessibilityRole="switch"
-      accessibilityState={{ checked: value }}
+      accessibilityState={{ checked: value, disabled }}
     >
       <Animated.View style={[styles.track, trackStyle]}>
         <Animated.View style={[styles.thumb, thumbStyle]} />

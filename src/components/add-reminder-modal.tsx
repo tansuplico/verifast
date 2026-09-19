@@ -18,6 +18,7 @@ import {
   type ReminderCategory,
 } from "@/constants/reminder-categories";
 import { Spacing } from "@/constants/theme";
+import { removeReminderEvent, upsertReminderEvent } from "@/lib/calendar-sync";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/providers/toast-provider";
 
@@ -26,6 +27,7 @@ export type EditableReminder = {
   title: string;
   category: ReminderCategory;
   dueDate: string;
+  calendarEventId: string | null;
 };
 
 const TITLE_MAX_LENGTH = 60;
@@ -36,6 +38,10 @@ type AddReminderModalProps = {
   userId: string | undefined;
   onSaved: () => void;
   editingReminder: EditableReminder | null;
+  // Whether the user has Calendar Sync turned on (Deadlines & Reminders
+  // settings list). When true, saving/deleting a reminder here also
+  // creates/updates/removes its matching device calendar event.
+  calendarSyncEnabled: boolean;
 };
 
 const CATEGORY_OPTIONS: ReminderCategory[] = [
@@ -69,6 +75,7 @@ export function AddReminderModal({
   userId,
   onSaved,
   editingReminder,
+  calendarSyncEnabled,
 }: AddReminderModalProps) {
   const { showToast } = useToast();
   const [title, setTitle] = useState("");
@@ -101,6 +108,9 @@ export function AddReminderModal({
     if (!title.trim() || !userId) return;
     setIsSaving(true);
 
+    const trimmedTitle = title.trim();
+    const dueDateForDb = formatDateForDb(dueDate);
+
     // `type` isn't shown anywhere in this screen's UI - it's a leftover
     // required column from before Document/Checklist/Payment categories
     // existed, and only affects the icon/color on Home's older "Document
@@ -109,30 +119,62 @@ export function AddReminderModal({
     // deliberately leave the column untouched (no picker exists for it) -
     // worth a proper type picker (or dropping the column) later if that
     // Home styling matters.
-    const { error } = editingReminder
+    const { data: savedRow, error } = editingReminder
       ? await supabase
           .from("reminders")
           .update({
-            title: title.trim(),
+            title: trimmedTitle,
             category,
-            due_date: formatDateForDb(dueDate),
+            due_date: dueDateForDb,
           })
           .eq("id", editingReminder.id)
-      : await supabase.from("reminders").insert({
-          user_id: userId,
-          title: title.trim(),
-          category,
-          type: "submission",
-          due_date: formatDateForDb(dueDate),
-        });
+          .select("id")
+          .single()
+      : await supabase
+          .from("reminders")
+          .insert({
+            user_id: userId,
+            title: trimmedTitle,
+            category,
+            type: "submission",
+            due_date: dueDateForDb,
+          })
+          .select("id")
+          .single();
 
-    setIsSaving(false);
-
-    if (error) {
-      Alert.alert("Couldn't save reminder", error.message);
+    if (error || !savedRow) {
+      setIsSaving(false);
+      Alert.alert("Couldn't save reminder", error?.message ?? "Unknown error");
       return;
     }
 
+    // Calendar sync is best-effort: a failure here (permission revoked on
+    // the device, the OS calendar app being unavailable, etc.) shouldn't
+    // block the reminder itself from saving, since the reminder is already
+    // safely in the database at this point.
+    if (calendarSyncEnabled) {
+      try {
+        const newCalendarEventId = await upsertReminderEvent(
+          {
+            title: trimmedTitle,
+            dueDate: dueDateForDb,
+            categoryLabel: CATEGORY_STYLE[category].label,
+          },
+          editingReminder?.calendarEventId,
+        );
+
+        if (newCalendarEventId !== editingReminder?.calendarEventId) {
+          await supabase
+            .from("reminders")
+            .update({ calendar_event_id: newCalendarEventId })
+            .eq("id", savedRow.id);
+        }
+      } catch (calendarError) {
+        console.error("Failed to sync reminder to calendar", calendarError);
+      }
+    }
+
+    setIsSaving(false);
     showToast(editingReminder ? "Reminder updated" : "Reminder saved");
     onSaved();
     onClose();
@@ -154,13 +196,22 @@ export function AddReminderModal({
               .from("reminders")
               .delete()
               .eq("id", editingReminder.id);
-            setIsSaving(false);
 
             if (error) {
+              setIsSaving(false);
               Alert.alert("Couldn't delete reminder", error.message);
               return;
             }
 
+            // Clean up the device event whenever one exists, regardless of
+            // whether Calendar Sync is currently toggled on - it may have
+            // been synced earlier and then sync turned off since, and an
+            // orphaned event left behind on the device would be confusing.
+            if (editingReminder.calendarEventId) {
+              await removeReminderEvent(editingReminder.calendarEventId);
+            }
+
+            setIsSaving(false);
             onSaved();
             onClose();
           },

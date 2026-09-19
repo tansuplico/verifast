@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -17,6 +18,10 @@ import {
   type ReminderCategory,
 } from "@/constants/reminder-categories";
 import { Spacing } from "@/constants/theme";
+import {
+  ensureCalendarPermission,
+  upsertReminderEvent,
+} from "@/lib/calendar-sync";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
 
@@ -24,11 +29,18 @@ import { useAuth } from "@/providers/auth-provider";
 // the next 3 weeks").
 const UPCOMING_WINDOW_DAYS = 21;
 
+// Whether Calendar Sync is on is a per-device setting, not an account one
+// (the calendar events themselves live on this device), so it's persisted
+// in AsyncStorage rather than Supabase - unlike Push/Email below, which are
+// still local-state-only placeholders with nothing to persist to yet.
+const CALENDAR_SYNC_STORAGE_KEY = "verifast:calendarSyncEnabled";
+
 type Reminder = {
   id: string;
   title: string;
   dueDate: string;
   category: ReminderCategory;
+  calendarEventId: string | null;
 };
 
 function formatFullDate(dateString: string) {
@@ -95,10 +107,18 @@ export default function DeadlinesRemindersScreen() {
   // integrated yet (see pending tasks), so there's no backend to persist to.
   const [pushEnabled, setPushEnabled] = useState(true);
   const [emailEnabled, setEmailEnabled] = useState(false);
+  const [calendarSyncEnabled, setCalendarSyncEnabled] = useState(false);
+  const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [editingReminder, setEditingReminder] =
     useState<EditableReminder | null>(null);
   const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(CALENDAR_SYNC_STORAGE_KEY).then((value) => {
+      if (value === "true") setCalendarSyncEnabled(true);
+    });
+  }, []);
 
   const loadReminders = useCallback(async () => {
     if (!session) return;
@@ -106,7 +126,7 @@ export default function DeadlinesRemindersScreen() {
 
     const { data, error } = await supabase
       .from("reminders")
-      .select("id, title, due_date, category")
+      .select("id, title, due_date, category, calendar_event_id")
       .eq("user_id", session.user.id)
       .eq("status", "pending")
       .order("due_date", { ascending: true });
@@ -122,6 +142,7 @@ export default function DeadlinesRemindersScreen() {
           title: row.title,
           dueDate: row.due_date,
           category: row.category as ReminderCategory,
+          calendarEventId: row.calendar_event_id,
         })),
       );
     }
@@ -138,6 +159,71 @@ export default function DeadlinesRemindersScreen() {
   const upcomingCount = reminders.filter(
     (r) => daysUntil(r.dueDate) <= UPCOMING_WINDOW_DAYS,
   ).length;
+
+  async function handleCalendarSyncToggle(nextValue: boolean) {
+    if (!nextValue) {
+      // Turning sync off doesn't remove already-synced events from the
+      // device - same "stop going forward, don't undo the past" behavior
+      // as toggling off a subscription rather than refunding it. It just
+      // stops new/edited reminders from being pushed to the calendar.
+      setCalendarSyncEnabled(false);
+      await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
+      return;
+    }
+
+    const granted = await ensureCalendarPermission();
+    if (!granted) {
+      Alert.alert(
+        "Calendar access needed",
+        "VeriFast needs calendar access to sync your deadlines. You can enable it in your device Settings.",
+      );
+      return;
+    }
+
+    setCalendarSyncEnabled(true);
+    await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "true");
+
+    // Backfill: push every reminder that doesn't already have a synced
+    // event yet. Reminders created while sync was off (or before this
+    // feature existed) would otherwise silently never show up on the
+    // device calendar until the user happened to edit them.
+    const unsynced = reminders.filter((r) => !r.calendarEventId);
+    if (unsynced.length === 0) return;
+
+    setIsSyncingCalendar(true);
+    let failureCount = 0;
+
+    for (const reminder of unsynced) {
+      try {
+        const calendarEventId = await upsertReminderEvent({
+          title: reminder.title,
+          dueDate: reminder.dueDate,
+          categoryLabel: CATEGORY_STYLE[reminder.category].label,
+        });
+        await supabase
+          .from("reminders")
+          .update({ calendar_event_id: calendarEventId })
+          .eq("id", reminder.id);
+      } catch (calendarError) {
+        failureCount += 1;
+        console.error(
+          "Failed to sync reminder to calendar",
+          reminder.id,
+          calendarError,
+        );
+      }
+    }
+
+    setIsSyncingCalendar(false);
+    await loadReminders();
+
+    if (failureCount > 0) {
+      Alert.alert(
+        "Some reminders didn't sync",
+        `${failureCount} of ${unsynced.length} deadlines couldn't be added to your calendar. Try again from Settings.`,
+      );
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -280,6 +366,22 @@ export default function DeadlinesRemindersScreen() {
                 onValueChange={setEmailEnabled}
               />
             </View>
+
+            <View style={styles.settingRow}>
+              <View style={styles.settingTextGroup}>
+                <ThemedText type="smallBold">Calendar Sync</ThemedText>
+                <ThemedText type="small" style={styles.settingSubtext}>
+                  {isSyncingCalendar
+                    ? "Syncing your deadlines…"
+                    : "Add deadlines to your phone's calendar"}
+                </ThemedText>
+              </View>
+              <ToggleSwitch
+                value={calendarSyncEnabled}
+                onValueChange={handleCalendarSyncToggle}
+                disabled={isSyncingCalendar}
+              />
+            </View>
           </View>
         </ScrollView>
         <Pressable
@@ -298,6 +400,7 @@ export default function DeadlinesRemindersScreen() {
           userId={session?.user.id}
           editingReminder={editingReminder}
           onSaved={() => loadReminders()}
+          calendarSyncEnabled={calendarSyncEnabled}
         />
       </SafeAreaView>
     </View>

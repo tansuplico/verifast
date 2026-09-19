@@ -20,6 +20,7 @@ import {
 import { Spacing } from "@/constants/theme";
 import {
   ensureCalendarPermission,
+  removeReminderEvent,
   upsertReminderEvent,
 } from "@/lib/calendar-sync";
 import { supabase } from "@/lib/supabase";
@@ -160,14 +161,63 @@ export default function DeadlinesRemindersScreen() {
     (r) => daysUntil(r.dueDate) <= UPCOMING_WINDOW_DAYS,
   ).length;
 
+  // Deletes every synced reminder's calendar event and clears its
+  // calendar_event_id - the mirror image of the backfill loop in
+  // handleCalendarSyncToggle. Used when the user explicitly chooses to
+  // remove events on turning sync off, not called automatically.
+  async function removeAllSyncedEvents() {
+    const synced = reminders.filter(
+      (r): r is Reminder & { calendarEventId: string } =>
+        r.calendarEventId !== null,
+    );
+    if (synced.length === 0) return;
+
+    setIsSyncingCalendar(true);
+    for (const reminder of synced) {
+      await removeReminderEvent(reminder.calendarEventId);
+      await supabase
+        .from("reminders")
+        .update({ calendar_event_id: null })
+        .eq("id", reminder.id);
+    }
+    setIsSyncingCalendar(false);
+    await loadReminders();
+  }
+
   async function handleCalendarSyncToggle(nextValue: boolean) {
     if (!nextValue) {
-      // Turning sync off doesn't remove already-synced events from the
-      // device - same "stop going forward, don't undo the past" behavior
-      // as toggling off a subscription rather than refunding it. It just
-      // stops new/edited reminders from being pushed to the calendar.
-      setCalendarSyncEnabled(false);
-      await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
+      const synced = reminders.filter((r) => r.calendarEventId !== null);
+
+      // Nothing synced yet - just flip it off, nothing to ask about.
+      if (synced.length === 0) {
+        setCalendarSyncEnabled(false);
+        await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
+        return;
+      }
+
+      Alert.alert(
+        "Turn off Calendar Sync?",
+        `You have ${synced.length} deadline${synced.length === 1 ? "" : "s"} on your device calendar. You can leave them there or remove them now.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Keep on Calendar",
+            onPress: async () => {
+              setCalendarSyncEnabled(false);
+              await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
+            },
+          },
+          {
+            text: "Remove from Calendar",
+            style: "destructive",
+            onPress: async () => {
+              setCalendarSyncEnabled(false);
+              await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
+              await removeAllSyncedEvents();
+            },
+          },
+        ],
+      );
       return;
     }
 
@@ -372,7 +422,7 @@ export default function DeadlinesRemindersScreen() {
                 <ThemedText type="smallBold">Calendar Sync</ThemedText>
                 <ThemedText type="small" style={styles.settingSubtext}>
                   {isSyncingCalendar
-                    ? "Syncing your deadlines…"
+                    ? "Updating your calendar…"
                     : "Add deadlines to your phone's calendar"}
                 </ThemedText>
               </View>

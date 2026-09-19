@@ -19,6 +19,7 @@ import {
 } from "@/constants/reminder-categories";
 import { Spacing } from "@/constants/theme";
 import { removeReminderEvent, upsertReminderEvent } from "@/lib/calendar-sync";
+import { getDeviceId } from "@/lib/device-id";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/providers/toast-provider";
 
@@ -168,10 +169,15 @@ export function AddReminderModal({
         );
 
         if (newCalendarEventId !== editingReminder?.calendarEventId) {
-          await supabase
-            .from("reminders")
-            .update({ calendar_event_id: newCalendarEventId })
-            .eq("id", savedRow.id);
+          const deviceId = await getDeviceId();
+          await supabase.from("reminder_calendar_syncs").upsert(
+            {
+              reminder_id: savedRow.id,
+              device_id: deviceId,
+              calendar_event_id: newCalendarEventId,
+            },
+            { onConflict: "reminder_id,device_id" },
+          );
         }
       } catch (calendarError) {
         calendarSyncFailed = true;
@@ -227,6 +233,9 @@ export function AddReminderModal({
             // whether Calendar Sync is currently toggled on - it may have
             // been synced earlier and then sync turned off since, and an
             // orphaned event left behind on the device would be confusing.
+            // The reminder_calendar_syncs row for this device is cleaned up
+            // automatically via its `on delete cascade` foreign key - no
+            // separate query needed here.
             if (editingReminder.calendarEventId) {
               await removeReminderEvent(editingReminder.calendarEventId);
             }

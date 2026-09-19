@@ -23,6 +23,7 @@ import {
   removeReminderEvent,
   upsertReminderEvent,
 } from "@/lib/calendar-sync";
+import { getDeviceId } from "@/lib/device-id";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/auth-provider";
 
@@ -125,25 +126,54 @@ export default function DeadlinesRemindersScreen() {
     if (!session) return;
     setIsLoading(true);
 
-    const { data, error } = await supabase
-      .from("reminders")
-      .select("id, title, due_date, category, calendar_event_id")
-      .eq("user_id", session.user.id)
-      .eq("status", "pending")
-      .order("due_date", { ascending: true });
+    const deviceId = await getDeviceId();
 
-    if (error) {
-      console.error("Failed to load reminders", error);
+    // Two queries + a client-side merge, rather than one query with a
+    // filtered embed - PostgREST's embedded-resource filter semantics
+    // (left join vs. inner join once you filter the embedded table) are
+    // easy to get subtly wrong without a live instance to check against,
+    // and this reminders list is small enough that the extra round trip
+    // costs nothing noticeable.
+    const [remindersResult, syncsResult] = await Promise.all([
+      supabase
+        .from("reminders")
+        .select("id, title, due_date, category")
+        .eq("user_id", session.user.id)
+        .eq("status", "pending")
+        .order("due_date", { ascending: true }),
+      supabase
+        .from("reminder_calendar_syncs")
+        .select("reminder_id, calendar_event_id")
+        .eq("device_id", deviceId),
+    ]);
+
+    if (remindersResult.error) {
+      console.error("Failed to load reminders", remindersResult.error);
       setLoadError(true);
     } else {
       setLoadError(false);
+
+      if (syncsResult.error) {
+        // Non-fatal: the reminders list itself still loads fine, it just
+        // can't say which ones are synced to this device's calendar until
+        // the next successful load.
+        console.error("Failed to load calendar sync state", syncsResult.error);
+      }
+
+      const calendarEventIdByReminderId = new Map(
+        (syncsResult.data ?? []).map((row) => [
+          row.reminder_id,
+          row.calendar_event_id,
+        ]),
+      );
+
       setReminders(
-        (data ?? []).map((row) => ({
+        (remindersResult.data ?? []).map((row) => ({
           id: row.id,
           title: row.title,
           dueDate: row.due_date,
           category: row.category as ReminderCategory,
-          calendarEventId: row.calendar_event_id,
+          calendarEventId: calendarEventIdByReminderId.get(row.id) ?? null,
         })),
       );
     }
@@ -173,12 +203,14 @@ export default function DeadlinesRemindersScreen() {
     if (synced.length === 0) return;
 
     setIsSyncingCalendar(true);
+    const deviceId = await getDeviceId();
     for (const reminder of synced) {
       await removeReminderEvent(reminder.calendarEventId);
       await supabase
-        .from("reminders")
-        .update({ calendar_event_id: null })
-        .eq("id", reminder.id);
+        .from("reminder_calendar_syncs")
+        .delete()
+        .eq("reminder_id", reminder.id)
+        .eq("device_id", deviceId);
     }
     setIsSyncingCalendar(false);
     await loadReminders();
@@ -242,6 +274,7 @@ export default function DeadlinesRemindersScreen() {
 
     setIsSyncingCalendar(true);
     let failureCount = 0;
+    const deviceId = await getDeviceId();
 
     for (const reminder of unsynced) {
       try {
@@ -250,10 +283,14 @@ export default function DeadlinesRemindersScreen() {
           dueDate: reminder.dueDate,
           categoryLabel: CATEGORY_STYLE[reminder.category].label,
         });
-        await supabase
-          .from("reminders")
-          .update({ calendar_event_id: calendarEventId })
-          .eq("id", reminder.id);
+        await supabase.from("reminder_calendar_syncs").upsert(
+          {
+            reminder_id: reminder.id,
+            device_id: deviceId,
+            calendar_event_id: calendarEventId,
+          },
+          { onConflict: "reminder_id,device_id" },
+        );
       } catch (calendarError) {
         failureCount += 1;
         console.error(

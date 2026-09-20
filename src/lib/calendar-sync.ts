@@ -9,10 +9,17 @@ import { Platform } from "react-native";
 
 const APP_CALENDAR_TITLE = "VeriFast Deadlines";
 
-// How many minutes before the deadline's local midnight the OS should alarm
-// the user - mirrors the "Get alerts 3 days before each deadline" copy
-// already shown next to the Push Notifications toggle on this screen.
-const ALARM_OFFSET_MINUTES = -3 * 24 * 60;
+// Alerts fire this many days before the due date, at this local hour. All-day
+// events anchor at local midnight, so without the hour offset the alert would
+// land at 12:00 AM - when nobody is looking at their phone. Mirrors the
+// "Get alerts 3 days before each deadline" copy next to the Push Notifications
+// toggle on this screen.
+const ALARM_DAYS_BEFORE = 3;
+const ALARM_HOUR = 9; // 24h local time
+
+// relativeOffset is minutes from the event's start (negative = before it).
+// 3 days minus 9 hours = 3780 minutes before the due date's midnight.
+const ALARM_OFFSET_MINUTES = -(ALARM_DAYS_BEFORE * 24 * 60 - ALARM_HOUR * 60);
 
 // Cached for the lifetime of the app so repeat syncs don't re-search the
 // device's calendar list every time. The calendar itself persists on the

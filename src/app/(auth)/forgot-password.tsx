@@ -90,7 +90,7 @@ export default function ForgotPasswordScreen() {
           <ThemedText type="default" style={styles.headerSubtitle}>
             {step === "email"
               ? "Enter your email and we'll send you a reset code"
-              : `We sent a 6-digit code to ${email.trim()}`}
+              : `We sent a 8-digit code to ${email.trim()}`}
           </ThemedText>
         </SafeAreaView>
       </View>
@@ -124,9 +124,9 @@ export default function ForgotPasswordScreen() {
         ) : (
           <>
             <AuthTextField
-              label="6-digit code"
+              label="8-digit code"
               icon="keypad-outline"
-              placeholder="123456"
+              placeholder="12345678"
               keyboardType="number-pad"
               value={code}
               onChangeText={setCode}

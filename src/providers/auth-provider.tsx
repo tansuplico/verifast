@@ -209,7 +209,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
       },
       async requestPasswordReset(email) {
-        // No redirectTo - the email carries a 6-digit code, not a link,
+        // No redirectTo - the email carries a 8-digit code, not a link,
         // so there's no deep link for the app to catch.
         const { error } = await supabase.auth.resetPasswordForEmail(email);
         return { error: error?.message ?? null };

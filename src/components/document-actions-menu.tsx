@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   StyleSheet,
   TextInput,
@@ -13,6 +12,7 @@ import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 import { useToast } from "@/providers/toast-provider";
 import type { DocumentRow } from "@/types/documents";
 
@@ -84,13 +84,17 @@ export function DocumentActionsMenu({
     setIsSaving(false);
 
     if (error) {
-      Alert.alert("Couldn't rename document", error.message);
+      showAlert("Couldn't rename document", error.message, undefined, {
+        tone: "danger",
+      });
       return;
     }
     if (!data || data.length === 0) {
-      Alert.alert(
+      showAlert(
         "Couldn't rename document",
         "The document wasn't updated — this usually means the update was blocked by a database permission (RLS) rule.",
+        undefined,
+        { tone: "danger" },
       );
       return;
     }
@@ -112,13 +116,17 @@ export function DocumentActionsMenu({
     setIsSaving(false);
 
     if (error) {
-      Alert.alert("Couldn't move document", error.message);
+      showAlert("Couldn't move document", error.message, undefined, {
+        tone: "danger",
+      });
       return;
     }
     if (!data || data.length === 0) {
-      Alert.alert(
+      showAlert(
         "Couldn't move document",
         "The document wasn't moved — this usually means the update was blocked by a database permission (RLS) rule.",
+        undefined,
+        { tone: "danger" },
       );
       return;
     }
@@ -141,13 +149,17 @@ export function DocumentActionsMenu({
     setIsSaving(false);
 
     if (error) {
-      Alert.alert("Couldn't update icon color", error.message);
+      showAlert("Couldn't update icon color", error.message, undefined, {
+        tone: "danger",
+      });
       return;
     }
     if (!data || data.length === 0) {
-      Alert.alert(
+      showAlert(
         "Couldn't update icon color",
         "The document wasn't updated — this usually means the update was blocked by a database permission (RLS) rule.",
+        undefined,
+        { tone: "danger" },
       );
       return;
     }

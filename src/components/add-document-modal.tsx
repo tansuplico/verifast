@@ -1,6 +1,7 @@
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 import { useToast } from "@/providers/toast-provider";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { decode } from "base64-arraybuffer";
@@ -9,7 +10,6 @@ import * as ImagePicker from "expo-image-picker";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -101,16 +101,28 @@ export function AddDocumentModal({
     onClose();
   }
 
-  function applyPickedFile(file: PickedFile) {
+  // The alerts below are awaited on purpose. Every caller runs inside a
+  // try/finally that un-suspends the sheet (isPickerActive), and the sheet
+  // is a Modal - if it reappeared at the same moment the alert's own Modal
+  // opened, the two would fight over the screen. Awaiting keeps the sheet
+  // hidden until the alert has closed.
+  async function applyPickedFile(file: PickedFile) {
     if (!ALLOWED_MIME_TYPES.includes(file.mimeType)) {
-      Alert.alert(
+      await showAlert(
         "Unsupported file type",
         "Please choose a PDF, JPG, PNG, or HEIC file.",
+        undefined,
+        { tone: "warning" },
       );
       return;
     }
     if (file.size && file.size > MAX_FILE_SIZE_BYTES) {
-      Alert.alert("File too large", "Documents must be 10 MB or smaller.");
+      await showAlert(
+        "File too large",
+        "Documents must be 10 MB or smaller.",
+        undefined,
+        { tone: "warning" },
+      );
       return;
     }
     setPickedFile(file);
@@ -125,9 +137,11 @@ export function AddDocumentModal({
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert(
+        await showAlert(
           "Camera access needed",
           "Enable camera access in your device settings to take a photo.",
+          undefined,
+          { tone: "warning", icon: "camera-outline" },
         );
         return;
       }
@@ -137,7 +151,7 @@ export function AddDocumentModal({
       });
       if (result.canceled) return;
       const asset = result.assets[0];
-      applyPickedFile({
+      await applyPickedFile({
         uri: asset.uri,
         name: asset.fileName ?? `photo-${Date.now()}.jpg`,
         mimeType: asset.mimeType ?? "image/jpeg",
@@ -155,9 +169,11 @@ export function AddDocumentModal({
       const permission =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert(
+        await showAlert(
           "Photo library access needed",
           "Enable photo library access in your device settings to upload a photo.",
+          undefined,
+          { tone: "warning", icon: "images-outline" },
         );
         return;
       }
@@ -168,7 +184,7 @@ export function AddDocumentModal({
       });
       if (result.canceled) return;
       const asset = result.assets[0];
-      applyPickedFile({
+      await applyPickedFile({
         uri: asset.uri,
         name: asset.fileName ?? `image-${Date.now()}.jpg`,
         mimeType: asset.mimeType ?? "image/jpeg",
@@ -189,7 +205,7 @@ export function AddDocumentModal({
       });
       if (result.canceled) return;
       const asset = result.assets[0];
-      applyPickedFile({
+      await applyPickedFile({
         uri: asset.uri,
         name: asset.name,
         mimeType: asset.mimeType ?? "application/octet-stream",
@@ -235,9 +251,11 @@ export function AddDocumentModal({
       onUploaded();
       onClose();
     } catch (error) {
-      Alert.alert(
+      showAlert(
         "Upload failed",
         error instanceof Error ? error.message : "Something went wrong.",
+        undefined,
+        { tone: "danger" },
       );
       setIsUploading(false);
     }

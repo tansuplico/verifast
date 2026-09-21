@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   Linking,
   Pressable,
   RefreshControl,
@@ -19,6 +18,7 @@ import { DocumentPreviewModal } from "@/components/document-preview-modal";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 import { LoadErrorState } from "@/components/load-error-state";
@@ -97,10 +97,6 @@ function formatShortDate(dateString: string) {
     month: "short",
     day: "numeric",
   });
-}
-
-function showComingSoon(feature: string) {
-  Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
 
 function DocumentSkeletonRow() {
@@ -191,7 +187,9 @@ export default function DocumentsScreen() {
       .createSignedUrl(doc.file_path, 60);
 
     if (error || !data?.signedUrl) {
-      Alert.alert("Couldn't open file", "Please try again.");
+      showAlert("Couldn't open file", "Please try again.", undefined, {
+        tone: "danger",
+      });
       return;
     }
 
@@ -205,7 +203,7 @@ export default function DocumentsScreen() {
 
   const handleDeleteDocument = useCallback(
     (doc: DocumentRow) => {
-      Alert.alert(
+      showAlert(
         "Delete document",
         `Are you sure you want to delete "${doc.name}"? This can't be undone.`,
         [
@@ -219,7 +217,14 @@ export default function DocumentsScreen() {
                   .from("documents")
                   .remove([doc.file_path]);
                 if (storageError) {
-                  Alert.alert("Couldn't delete file", storageError.message);
+                  showAlert(
+                    "Couldn't delete file",
+                    storageError.message,
+                    undefined,
+                    {
+                      tone: "danger",
+                    },
+                  );
                   return;
                 }
               }
@@ -228,7 +233,14 @@ export default function DocumentsScreen() {
                 .delete()
                 .eq("id", doc.id);
               if (dbError) {
-                Alert.alert("Couldn't delete document", dbError.message);
+                showAlert(
+                  "Couldn't delete document",
+                  dbError.message,
+                  undefined,
+                  {
+                    tone: "danger",
+                  },
+                );
                 return;
               }
               showToast("Document deleted");
@@ -236,6 +248,7 @@ export default function DocumentsScreen() {
             },
           },
         ],
+        { icon: "trash-outline" },
       );
     },
     [loadDocuments],
@@ -526,7 +539,7 @@ export default function DocumentsScreen() {
         style={styles.fab}
         onPress={() => {
           if (!isPro && documents.length >= FREE_DOCUMENT_LIMIT) {
-            Alert.alert(
+            showAlert(
               "Document limit reached",
               `Free accounts can store up to ${FREE_DOCUMENT_LIMIT} documents. Upgrade to VeriFast Pro for unlimited storage.`,
               [
@@ -536,6 +549,7 @@ export default function DocumentsScreen() {
                   onPress: () => router.push("/subscription"),
                 },
               ],
+              { tone: "info", icon: "sparkles-outline" },
             );
             return;
           }

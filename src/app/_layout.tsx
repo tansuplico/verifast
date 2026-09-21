@@ -7,6 +7,7 @@ import { useColorScheme } from "react-native";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { CrashBoundary } from "@/components/crash-boundary";
+import { AlertProvider } from "@/providers/alert-provider";
 import { AuthProvider, useAuth } from "@/providers/auth-provider";
 import { ToastProvider } from "@/providers/toast-provider";
 
@@ -25,8 +26,10 @@ function RootLayout() {
           value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
         >
           <ToastProvider>
-            <AnimatedSplashOverlay />
-            <RootNavigator />
+            <AlertProvider>
+              <AnimatedSplashOverlay />
+              <RootNavigator />
+            </AlertProvider>
           </ToastProvider>
         </ThemeProvider>
       </AuthProvider>

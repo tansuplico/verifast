@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
@@ -25,6 +25,7 @@ import {
 } from "@/lib/calendar-sync";
 import { getDeviceId } from "@/lib/device-id";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 // Days-out window the top banner counts against ("upcoming deadlines in
@@ -79,9 +80,11 @@ function dueInLabel(days: number) {
 }
 
 function showComingSoon(feature: string) {
-  Alert.alert("Coming soon", `${feature} isn't set up yet.`);
+  showAlert("Coming soon", `${feature} isn't set up yet.`, undefined, {
+    tone: "info",
+    icon: "time-outline",
+  });
 }
-
 function ReminderSkeletonCard() {
   return (
     <View style={styles.card}>
@@ -230,9 +233,11 @@ export default function DeadlinesRemindersScreen() {
   async function enableCalendarSync() {
     const granted = await ensureCalendarPermission();
     if (!granted) {
-      Alert.alert(
+      showAlert(
         "Calendar access needed",
         "VeriFast needs calendar access to sync your deadlines. You can enable it in your device Settings.",
+        undefined,
+        { tone: "warning", icon: "calendar-outline" },
       );
       return;
     }
@@ -280,9 +285,11 @@ export default function DeadlinesRemindersScreen() {
     await loadReminders();
 
     if (failureCount > 0) {
-      Alert.alert(
+      showAlert(
         "Some reminders didn't sync",
         `${failureCount} of ${unsynced.length} deadlines couldn't be added to your calendar. Try again from Settings.`,
+        undefined,
+        { tone: "warning" },
       );
     }
   }
@@ -298,7 +305,7 @@ export default function DeadlinesRemindersScreen() {
         return;
       }
 
-      Alert.alert(
+      showAlert(
         "Turn off Calendar Sync?",
         `You have ${synced.length} deadline${synced.length === 1 ? "" : "s"} on your device calendar. You can leave them there or remove them now.`,
         [
@@ -320,6 +327,7 @@ export default function DeadlinesRemindersScreen() {
             },
           },
         ],
+        { tone: "info", icon: "calendar-outline" },
       );
       return;
     }
@@ -339,7 +347,7 @@ export default function DeadlinesRemindersScreen() {
     // calendar - which, depending on the user's device settings, may sync
     // to a Google or iCloud account and become visible to any other app
     // with calendar access.
-    Alert.alert(
+    showAlert(
       "Add deadlines to your calendar?",
       'This adds your deadlines to a new "VeriFast Deadlines" calendar on your phone. Depending on your device settings, that calendar may sync to your Google or iCloud account and be visible to other apps that have calendar access.',
       [
@@ -355,6 +363,7 @@ export default function DeadlinesRemindersScreen() {
           },
         },
       ],
+      { tone: "info", icon: "calendar-outline" },
     );
   }
 

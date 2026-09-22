@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,6 +13,7 @@ import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 
 const DOCUMENT_TYPE_MAX_LENGTH = 60;
 const OFFICE_MAX_LENGTH = 80;
@@ -60,7 +60,9 @@ export function AddRequestModal({
     setIsSaving(false);
 
     if (error) {
-      Alert.alert("Couldn't save request", error.message);
+      showAlert("Couldn't save request", error.message, undefined, {
+        tone: "danger",
+      });
       return;
     }
 

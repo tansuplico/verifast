@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -25,6 +24,7 @@ import {
 } from "@/constants/request-status";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 type RequestRow = {
@@ -113,7 +113,7 @@ export default function RequestedDocsScreen() {
       const nextStatus = NEXT_STATUS[request.status];
       if (!nextStatus) return;
 
-      Alert.alert(
+      showAlert(
         `Mark as ${STATUS_STYLE[nextStatus].label}?`,
         `Update "${request.document_type}" to ${STATUS_STYLE[nextStatus].label}?`,
         [
@@ -133,13 +133,17 @@ export default function RequestedDocsScreen() {
                 .select();
 
               if (error) {
-                Alert.alert("Couldn't update request", error.message);
+                showAlert("Couldn't update request", error.message, undefined, {
+                  tone: "danger",
+                });
                 return;
               }
               if (!data || data.length === 0) {
-                Alert.alert(
+                showAlert(
                   "Couldn't update request",
                   "The request wasn't updated — this usually means the update was blocked by a database permission (RLS) rule.",
+                  undefined,
+                  { tone: "danger" },
                 );
                 return;
               }
@@ -154,7 +158,7 @@ export default function RequestedDocsScreen() {
 
   const handleDelete = useCallback(
     (request: RequestRow) => {
-      Alert.alert(
+      showAlert(
         "Delete request",
         `Remove the tracked request for "${request.document_type}"?`,
         [
@@ -169,13 +173,17 @@ export default function RequestedDocsScreen() {
                 .eq("id", request.id)
                 .select();
               if (error) {
-                Alert.alert("Couldn't delete request", error.message);
+                showAlert("Couldn't delete request", error.message, undefined, {
+                  tone: "danger",
+                });
                 return;
               }
               if (!data || data.length === 0) {
-                Alert.alert(
+                showAlert(
                   "Couldn't delete request",
                   "The request wasn't removed — this usually means the delete was blocked by a database permission (RLS) rule.",
+                  undefined,
+                  { tone: "danger" },
                 );
                 return;
               }
@@ -183,6 +191,7 @@ export default function RequestedDocsScreen() {
             },
           },
         ],
+        { icon: "trash-outline" },
       );
     },
     [loadRequests],

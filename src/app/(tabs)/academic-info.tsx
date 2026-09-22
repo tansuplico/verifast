@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -24,6 +23,7 @@ import {
 } from "@/constants/academic-info-categories";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showComingSoon } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 type AcademicInfoRow = AcademicInfoItem & { posted_at: string };
@@ -43,10 +43,6 @@ function formatPostedDate(dateString: string) {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function showComingSoon(feature: string) {
-  Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
 
 function AcademicInfoSkeletonCard() {

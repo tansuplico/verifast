@@ -18,12 +18,14 @@ import {
   type ReminderCategory,
 } from "@/constants/reminder-categories";
 import { Spacing } from "@/constants/theme";
+import { usePushNotificationsToggle } from "@/hooks/use-push-notifications-toggle";
 import {
   ensureCalendarPermission,
   removeReminderEvent,
   upsertReminderEvent,
 } from "@/lib/calendar-sync";
 import { getDeviceId } from "@/lib/device-id";
+import { getScheduledReminderIds } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -114,17 +116,27 @@ export default function DeadlinesRemindersScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [reminders, setReminders] = useState<Reminder[]>([]);
 
-  // Local-state only, same as the Push/Email toggles on the Profile screen
-  // and the 2FA toggle on Security & Privacy - Expo Notifications isn't
-  // integrated yet (see pending tasks), so there's no backend to persist to.
-  const [pushEnabled, setPushEnabled] = useState(true);
+  // Local-state only, same as the 2FA toggle on Security & Privacy - no
+  // backend exists yet for a weekly email digest.
   const [emailEnabled, setEmailEnabled] = useState(false);
+  const {
+    enabled: pushEnabled,
+    isSyncing: isSyncingPush,
+    toggle: handlePushToggle,
+  } = usePushNotificationsToggle(session?.user.id);
   const [calendarSyncEnabled, setCalendarSyncEnabled] = useState(false);
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [editingReminder, setEditingReminder] =
     useState<EditableReminder | null>(null);
   const [loadError, setLoadError] = useState(false);
+  // Which reminders have a notification scheduled on this device right
+  // now - read back from the OS rather than inferred from the toggle, so
+  // it reflects reality even for reminders too close to/past their due
+  // date to have anything scheduled despite Push Notifications being on.
+  const [scheduledReminderIds, setScheduledReminderIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   useEffect(() => {
     AsyncStorage.getItem(CALENDAR_SYNC_STORAGE_KEY).then((value) => {
@@ -144,7 +156,7 @@ export default function DeadlinesRemindersScreen() {
     // easy to get subtly wrong without a live instance to check against,
     // and this reminders list is small enough that the extra round trip
     // costs nothing noticeable.
-    const [remindersResult, syncsResult] = await Promise.all([
+    const [remindersResult, syncsResult, scheduledIds] = await Promise.all([
       supabase
         .from("reminders")
         .select("id, title, due_date, category")
@@ -155,7 +167,10 @@ export default function DeadlinesRemindersScreen() {
         .from("reminder_calendar_syncs")
         .select("reminder_id, calendar_event_id")
         .eq("device_id", deviceId),
+      getScheduledReminderIds(),
     ]);
+
+    setScheduledReminderIds(scheduledIds);
 
     if (remindersResult.error) {
       console.error("Failed to load reminders", remindersResult.error);
@@ -468,16 +483,34 @@ export default function DeadlinesRemindersScreen() {
                           accessibilityLabel="Synced to your calendar"
                         />
                       )}
-                      <Pressable
-                        hitSlop={8}
-                        onPress={() => showComingSoon("Reminder alerts")}
-                      >
+                      {scheduledReminderIds.has(reminder.id) ? (
                         <Ionicons
-                          name="notifications-outline"
-                          size={18}
+                          name="notifications"
+                          size={16}
                           color="#0d9488"
+                          accessibilityLabel="Alert scheduled for this reminder"
                         />
-                      </Pressable>
+                      ) : (
+                        <Pressable
+                          hitSlop={8}
+                          onPress={() =>
+                            showAlert(
+                              "No alert scheduled",
+                              pushEnabled
+                                ? "This deadline is too close to or past its alert window, so nothing is scheduled for it."
+                                : "Turn on Push Notifications below to get an alert for this reminder.",
+                              undefined,
+                              { tone: "info", icon: "notifications-outline" },
+                            )
+                          }
+                        >
+                          <Ionicons
+                            name="notifications-outline"
+                            size={18}
+                            color="#94a3b8"
+                          />
+                        </Pressable>
+                      )}
                     </View>
                   </View>
 
@@ -497,12 +530,15 @@ export default function DeadlinesRemindersScreen() {
               <View style={styles.settingTextGroup}>
                 <ThemedText type="smallBold">Push Notifications</ThemedText>
                 <ThemedText type="small" style={styles.settingSubtext}>
-                  Get alerts 3 days before each deadline
+                  {isSyncingPush
+                    ? "Scheduling your alerts…"
+                    : "Get alerts 3 days before each deadline"}
                 </ThemedText>
               </View>
               <ToggleSwitch
                 value={pushEnabled}
-                onValueChange={setPushEnabled}
+                onValueChange={handlePushToggle}
+                disabled={isSyncingPush}
               />
             </View>
 
@@ -553,6 +589,7 @@ export default function DeadlinesRemindersScreen() {
           editingReminder={editingReminder}
           onSaved={() => loadReminders()}
           calendarSyncEnabled={calendarSyncEnabled}
+          pushNotificationsEnabled={pushEnabled}
         />
       </SafeAreaView>
     </View>

@@ -48,6 +48,12 @@
           "calendarPermission": "Allow VeriFast to access your calendar to sync your deadlines and reminders."
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0d9488"
+        }
+      ],
       "expo-sharing",
       "@sentry/react-native"
     ],

@@ -19,6 +19,10 @@ import {
 import { Spacing } from "@/constants/theme";
 import { removeReminderEvent, upsertReminderEvent } from "@/lib/calendar-sync";
 import { getDeviceId } from "@/lib/device-id";
+import {
+  cancelReminderNotification,
+  scheduleReminderNotification,
+} from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -43,6 +47,11 @@ type AddReminderModalProps = {
   // settings list). When true, saving/deleting a reminder here also
   // creates/updates/removes its matching device calendar event.
   calendarSyncEnabled: boolean;
+  // Whether the user has Push Notifications turned on. When true, saving
+  // this reminder (re)schedules its local notification; deleting always
+  // cancels one regardless (cheap no-op if none was scheduled), same
+  // reasoning as calendar cleanup below.
+  pushNotificationsEnabled: boolean;
 };
 
 const CATEGORY_OPTIONS: ReminderCategory[] = [
@@ -77,6 +86,7 @@ export function AddReminderModal({
   onSaved,
   editingReminder,
   calendarSyncEnabled,
+  pushNotificationsEnabled,
 }: AddReminderModalProps) {
   const { showToast } = useToast();
   const [title, setTitle] = useState("");
@@ -190,6 +200,27 @@ export function AddReminderModal({
       }
     }
 
+    // Same best-effort reasoning as calendar sync above: the reminder is
+    // already saved, so a scheduling failure is a "heads up" via toast,
+    // not something that blocks the save.
+    let notificationFailed = false;
+
+    if (pushNotificationsEnabled) {
+      try {
+        await scheduleReminderNotification({
+          id: savedRow.id,
+          title: trimmedTitle,
+          dueDate: dueDateForDb,
+        });
+      } catch (notificationError) {
+        notificationFailed = true;
+        console.error(
+          "Failed to schedule reminder notification",
+          notificationError,
+        );
+      }
+    }
+
     setIsSaving(false);
     onSaved();
     onClose();
@@ -201,12 +232,18 @@ export function AddReminderModal({
     // the sheet is actually gone before the toast appears, per the
     // constraint documented in toast-provider.tsx.
     setTimeout(() => {
+      const savedLabel = editingReminder
+        ? "Reminder updated"
+        : "Reminder saved";
+      const failures = [
+        calendarSyncFailed && "calendar",
+        notificationFailed && "reminder alert",
+      ].filter(Boolean) as string[];
+
       showToast(
-        calendarSyncFailed
-          ? `${editingReminder ? "Reminder updated" : "Reminder saved"}, but couldn't sync to calendar`
-          : editingReminder
-            ? "Reminder updated"
-            : "Reminder saved",
+        failures.length > 0
+          ? `${savedLabel}, but couldn't sync to ${failures.join(" or ")}`
+          : savedLabel,
       );
     }, 260);
   }
@@ -246,6 +283,12 @@ export function AddReminderModal({
             if (editingReminder.calendarEventId) {
               await removeReminderEvent(editingReminder.calendarEventId);
             }
+
+            // Same reasoning as the calendar cleanup above: cancel
+            // regardless of whether Push Notifications is currently
+            // toggled on, since it may have been scheduled earlier and
+            // then turned off since. Cheap no-op if nothing was scheduled.
+            await cancelReminderNotification(editingReminder.id);
 
             setIsSaving(false);
             onSaved();

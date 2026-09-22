@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { cancelAllReminderNotifications } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 
 type AuthContextValue = {
@@ -206,6 +207,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsPasswordRecovery(false);
         setNeedsEmailOtpChallenge(false);
         setPendingOtpEmail(null);
+
+        // Scheduled notifications are local to this device and aren't
+        // scoped to an account (no device/account isolation yet - see
+        // pending tasks), so the next person to sign in on this device
+        // shouldn't inherit whatever the previous account had scheduled.
+        await cancelAllReminderNotifications();
+
         await supabase.auth.signOut();
       },
       async requestPasswordReset(email) {

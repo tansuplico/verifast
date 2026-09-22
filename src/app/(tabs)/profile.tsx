@@ -1,6 +1,7 @@
 import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { usePushNotificationsToggle } from "@/hooks/use-push-notifications-toggle";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -83,10 +84,15 @@ export default function ProfileScreen() {
     null,
   );
 
-  // Local-only for now: there is no notification_preferences table yet and
-  // Expo Notifications isn't integrated (see pending tasks), so these
-  // reflect UI state only and reset on app restart until that's built.
-  const [pushEnabled, setPushEnabled] = useState(true);
+  // Push Notifications is a real, per-device setting shared with the
+  // Deadlines & Reminders screen - see use-push-notifications-toggle.ts.
+  // Email/SMS below are still local-state-only placeholders: there is no
+  // notification_preferences table yet for either.
+  const {
+    enabled: pushEnabled,
+    isSyncing: isSyncingPush,
+    toggle: handlePushToggle,
+  } = usePushNotificationsToggle(session?.user.id);
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [smsEnabled, setSmsEnabled] = useState(false);
 
@@ -217,12 +223,15 @@ export default function ProfileScreen() {
               <View style={styles.toggleText}>
                 <ThemedText type="smallBold">Push Notifications</ThemedText>
                 <ThemedText type="small" style={styles.toggleSubtext}>
-                  Deadline alerts on your device
+                  {isSyncingPush
+                    ? "Scheduling your alerts…"
+                    : "Deadline alerts on your device"}
                 </ThemedText>
               </View>
               <ToggleSwitch
                 value={pushEnabled}
-                onValueChange={setPushEnabled}
+                onValueChange={handlePushToggle}
+                disabled={isSyncingPush}
               />
             </View>
 

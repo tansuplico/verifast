@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Link, useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,6 +15,7 @@ import { AuthTextField } from "@/components/auth-text-field";
 import { GoogleIcon } from "@/components/google-icon";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 export default function SignInScreen() {
@@ -27,14 +27,14 @@ export default function SignInScreen() {
 
   async function handleSignIn() {
     if (!email.trim() || !password) {
-      Alert.alert("Missing info", "Enter your email and password.");
+      showAlert("Missing info", "Enter your email and password.");
       return;
     }
     setIsSubmitting(true);
     const { error } = await signIn(email.trim(), password);
     setIsSubmitting(false);
     if (error) {
-      Alert.alert("Sign in failed", error);
+      showAlert("Sign in failed", error, undefined, { tone: "danger" });
       return;
     }
   }
@@ -46,7 +46,7 @@ export default function SignInScreen() {
   async function handleGoogleSignIn() {
     const { error } = await signInWithGoogle();
     if (error) {
-      Alert.alert("Sign in failed", error);
+      showAlert("Sign in failed", error, undefined, { tone: "danger" });
     }
   }
 

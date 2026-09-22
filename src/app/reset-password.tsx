@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AuthTextField } from "@/components/auth-text-field";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 const PASSWORD_MAX_LENGTH = 72;
@@ -26,18 +26,18 @@ export default function ResetPasswordScreen() {
 
   async function handleUpdatePassword() {
     if (!password || !confirmPassword) {
-      Alert.alert("Missing info", "Enter and confirm your new password.");
+      showAlert("Missing info", "Enter and confirm your new password.");
       return;
     }
     if (password.length < 6) {
-      Alert.alert(
+      showAlert(
         "Password too short",
         "Use at least 6 characters for your new password.",
       );
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert("Passwords don't match", "Double-check both fields.");
+      showAlert("Passwords don't match", "Double-check both fields.");
       return;
     }
 
@@ -46,14 +46,21 @@ export default function ResetPasswordScreen() {
     setIsSubmitting(false);
 
     if (error) {
-      Alert.alert("Couldn't update password", error);
+      showAlert("Couldn't update password", error, undefined, {
+        tone: "danger",
+      });
       return;
     }
 
     // Successful update clears isPasswordRecovery in the auth provider,
     // which lets the root layout's normal session guard take over and
     // send the user into (tabs) automatically - no manual navigation here.
-    Alert.alert("Password updated", "You're signed in with your new password.");
+    showAlert(
+      "Password updated",
+      "You're signed in with your new password.",
+      undefined,
+      { tone: "success" },
+    );
   }
 
   return (

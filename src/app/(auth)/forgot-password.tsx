@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AuthTextField } from "@/components/auth-text-field";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 type Step = "email" | "code";
@@ -29,7 +29,7 @@ export default function ForgotPasswordScreen() {
 
   async function handleSendCode() {
     if (!email.trim()) {
-      Alert.alert("Missing info", "Enter the email address on your account.");
+      showAlert("Missing info", "Enter the email address on your account.");
       return;
     }
     setIsSubmitting(true);
@@ -37,7 +37,7 @@ export default function ForgotPasswordScreen() {
     setIsSubmitting(false);
 
     if (error) {
-      Alert.alert("Couldn't send code", error);
+      showAlert("Couldn't send code", error, undefined, { tone: "danger" });
       return;
     }
     setStep("code");
@@ -45,7 +45,7 @@ export default function ForgotPasswordScreen() {
 
   async function handleVerifyCode() {
     if (!code.trim()) {
-      Alert.alert("Missing code", "Enter the code we emailed you.");
+      showAlert("Missing code", "Enter the code we emailed you.");
       return;
     }
     setIsSubmitting(true);
@@ -53,7 +53,7 @@ export default function ForgotPasswordScreen() {
     setIsSubmitting(false);
 
     if (error) {
-      Alert.alert("Invalid code", error);
+      showAlert("Invalid code", error, undefined, { tone: "danger" });
       return;
     }
     // Success establishes a session and flips isPasswordRecovery, so the

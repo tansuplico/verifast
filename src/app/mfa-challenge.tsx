@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import { AuthTextField } from "@/components/auth-text-field";
 import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
 import { Spacing } from "@/constants/theme";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 export default function MfaChallengeScreen() {
@@ -53,7 +53,7 @@ export default function MfaChallengeScreen() {
 
   async function handleVerify() {
     if (!code.trim()) {
-      Alert.alert("Missing code", "Enter the code we emailed you.");
+      showAlert("Missing code", "Enter the code we emailed you.");
       return;
     }
     setIsSubmitting(true);
@@ -63,7 +63,7 @@ export default function MfaChallengeScreen() {
         rememberDevice,
       );
       if (error) {
-        Alert.alert("Invalid code", error);
+        showAlert("Invalid code", error, undefined, { tone: "danger" });
       }
       // Success flips needsEmailOtpChallenge - the root layout's guard
       // takes it from here and routes into the app.
@@ -80,7 +80,7 @@ export default function MfaChallengeScreen() {
     try {
       const { error } = await resendEmailOtpChallenge();
       if (error) {
-        Alert.alert("Couldn't resend code", error);
+        showAlert("Couldn't resend code", error, undefined, { tone: "danger" });
       }
     } finally {
       setIsResending(false);

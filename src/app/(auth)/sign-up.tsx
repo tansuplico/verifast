@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Link, router } from "expo-router";
 import { useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,6 +15,7 @@ import { AuthTextField } from "@/components/auth-text-field";
 import { GoogleIcon } from "@/components/google-icon";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 const PASSWORD_MAX_LENGTH = 72;
@@ -30,18 +30,15 @@ export default function SignUpScreen() {
 
   async function handleCreateAccount() {
     if (!fullName.trim() || !email.trim() || !password) {
-      Alert.alert("Missing info", "Fill in all fields to continue.");
+      showAlert("Missing info", "Fill in all fields to continue.");
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert(
-        "Passwords don't match",
-        "Double check both password fields.",
-      );
+      showAlert("Passwords don't match", "Double check both password fields.");
       return;
     }
     if (password.length < 6) {
-      Alert.alert("Password too short", "Use at least 6 characters.");
+      showAlert("Password too short", "Use at least 6 characters.");
       return;
     }
 
@@ -54,15 +51,16 @@ export default function SignUpScreen() {
     setIsSubmitting(false);
 
     if (error) {
-      Alert.alert("Sign up failed", error);
+      showAlert("Sign up failed", error, undefined, { tone: "danger" });
       return;
     }
 
     if (needsEmailConfirmation) {
-      Alert.alert(
+      showAlert(
         "Check your email",
         "We've sent a confirmation link. Verify your email, then sign in.",
         [{ text: "OK", onPress: () => router.replace("/sign-in") }],
+        { tone: "info", icon: "mail-outline" },
       );
       return;
     }
@@ -73,7 +71,7 @@ export default function SignUpScreen() {
   async function handleGoogleSignUp() {
     const { error } = await signInWithGoogle();
     if (error) {
-      Alert.alert("Sign in failed", error);
+      showAlert("Sign in failed", error, undefined, { tone: "danger" });
     }
   }
 

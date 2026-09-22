@@ -5,7 +5,6 @@ import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 type DocumentRow = {
@@ -120,9 +120,11 @@ export default function BackupRecoveryScreen() {
         dialogTitle: doc.name,
       });
     } catch (err) {
-      Alert.alert(
+      showAlert(
         "Couldn't export file",
         err instanceof Error ? err.message : "Please try again.",
+        undefined,
+        { tone: "danger" },
       );
     } finally {
       setExportingId(null);

@@ -2,7 +2,6 @@ import DateTimePicker from "@expo/ui/community/datetime-picker";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -21,6 +20,7 @@ import { Spacing } from "@/constants/theme";
 import { removeReminderEvent, upsertReminderEvent } from "@/lib/calendar-sync";
 import { getDeviceId } from "@/lib/device-id";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 import { useToast } from "@/providers/toast-provider";
 
 export type EditableReminder = {
@@ -145,7 +145,12 @@ export function AddReminderModal({
 
     if (error || !savedRow) {
       setIsSaving(false);
-      Alert.alert("Couldn't save reminder", error?.message ?? "Unknown error");
+      showAlert(
+        "Couldn't save reminder",
+        error?.message ?? "Unknown error",
+        undefined,
+        { tone: "danger" },
+      );
       return;
     }
 
@@ -208,7 +213,7 @@ export function AddReminderModal({
 
   function handleDelete() {
     if (!editingReminder) return;
-    Alert.alert(
+    showAlert(
       "Delete reminder",
       `Are you sure you want to delete "${editingReminder.title}"? This can't be undone.`,
       [
@@ -225,7 +230,9 @@ export function AddReminderModal({
 
             if (error) {
               setIsSaving(false);
-              Alert.alert("Couldn't delete reminder", error.message);
+              showAlert("Couldn't delete reminder", error.message, undefined, {
+                tone: "danger",
+              });
               return;
             }
 
@@ -246,6 +253,7 @@ export function AddReminderModal({
           },
         },
       ],
+      { icon: "trash-outline" },
     );
   }
 

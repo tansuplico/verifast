@@ -5,7 +5,6 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Platform,
   Pressable,
@@ -19,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { KeyboardAvoidingView } from "react-native";
@@ -87,19 +87,26 @@ export default function EditProfileScreen() {
   }, [loadProfile]);
 
   function handleChangePhoto() {
-    Alert.alert("Change Photo", undefined, [
-      { text: "Take Photo", onPress: handleTakePhoto },
-      { text: "Choose from Library", onPress: handlePickFromLibrary },
-      { text: "Cancel", style: "cancel" },
-    ]);
+    showAlert(
+      "Change Photo",
+      undefined,
+      [
+        { text: "Take Photo", onPress: handleTakePhoto },
+        { text: "Choose from Library", onPress: handlePickFromLibrary },
+        { text: "Cancel", style: "cancel" },
+      ],
+      { tone: "info", icon: "image-outline" },
+    );
   }
 
   async function handleTakePhoto() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert(
+      showAlert(
         "Camera access needed",
         "Enable camera access in your device settings to take a photo.",
+        undefined,
+        { tone: "warning", icon: "camera-outline" },
       );
       return;
     }
@@ -116,9 +123,11 @@ export default function EditProfileScreen() {
   async function handlePickFromLibrary() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert(
+      showAlert(
         "Photo library access needed",
         "Enable photo library access in your device settings to choose a photo.",
+        undefined,
+        { tone: "warning", icon: "images-outline" },
       );
       return;
     }
@@ -164,7 +173,14 @@ export default function EditProfileScreen() {
 
       if (uploadResult.error) {
         setIsSaving(false);
-        Alert.alert("Couldn't upload photo", uploadResult.error.message);
+        showAlert(
+          "Couldn't upload photo",
+          uploadResult.error.message,
+          undefined,
+          {
+            tone: "danger",
+          },
+        );
         return;
       }
 
@@ -186,7 +202,9 @@ export default function EditProfileScreen() {
     setIsSaving(false);
 
     if (error) {
-      Alert.alert("Couldn't save changes", error.message);
+      showAlert("Couldn't save changes", error.message, undefined, {
+        tone: "danger",
+      });
       return;
     }
 

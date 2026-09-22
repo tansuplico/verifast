@@ -3,7 +3,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
-  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -18,6 +17,7 @@ import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert, showComingSoon } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 const SEARCH_QUERY_MAX_LENGTH = 50;
@@ -102,10 +102,6 @@ function labelForCategory(category: AcademicInfoResult["category"]) {
   }
 }
 
-function showComingSoon(feature: string) {
-  Alert.alert("Coming soon", `${feature} isn't set up yet.`);
-}
-
 function SearchResultSkeletonRow() {
   return (
     <View style={styles.resultRow}>
@@ -138,7 +134,9 @@ export default function SearchScreen() {
       .createSignedUrl(doc.file_path, 60);
 
     if (error || !data?.signedUrl) {
-      Alert.alert("Couldn't open file", "Please try again.");
+      showAlert("Couldn't open file", "Please try again.", undefined, {
+        tone: "danger",
+      });
       return;
     }
 

@@ -1,22 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import {
-  Alert,
-  Linking,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { showComingSoon } from "@/providers/alert-provider";
 import Animated, { LinearTransition } from "react-native-reanimated";
-function showComingSoon(feature: string) {
-  Alert.alert("Coming soon", `${feature} isn't set up yet.`);
-}
 
 // TODO: placeholder contact info - swap for the real support email/phone
 // once VeriFast Digital Platforms has one set up.

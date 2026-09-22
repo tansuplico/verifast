@@ -4,7 +4,6 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 import { makeRedirectUri } from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
@@ -50,10 +50,6 @@ function formatDate(dateString: string) {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function showComingSoon(feature: string) {
-  Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
 
 type BannerTone = "trial" | "success" | "warning" | "neutral" | "error";
@@ -240,9 +236,11 @@ export default function SubscriptionScreen() {
     const { data, error } = await supabase.functions.invoke("create-checkout");
     if (error || !data?.checkout_url) {
       setIsCheckingOut(false);
-      Alert.alert(
+      showAlert(
         "Something went wrong",
         "Couldn't start checkout. Please try again.",
+        undefined,
+        { tone: "danger" },
       );
       return;
     }
@@ -280,7 +278,7 @@ export default function SubscriptionScreen() {
   }
 
   function confirmCancelSubscription() {
-    Alert.alert(
+    showAlert(
       "Cancel plan?",
       "You'll lose Pro access right away. You can resubscribe anytime, but this can't be undone from here.",
       [
@@ -299,9 +297,11 @@ export default function SubscriptionScreen() {
     const { error } = await supabase.functions.invoke("cancel-subscription");
     setIsCanceling(false);
     if (error) {
-      Alert.alert(
+      showAlert(
         "Something went wrong",
         "Couldn't cancel your plan. Please try again.",
+        undefined,
+        { tone: "danger" },
       );
       return;
     }

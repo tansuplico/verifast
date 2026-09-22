@@ -2,19 +2,13 @@ import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-  Alert,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 type ProfileRow = {
@@ -78,10 +72,6 @@ function subscriptionCopy(sub: SubscriptionRow | null) {
     default:
       return { title: "VeriFast Annual", detail: "Trial expired" };
   }
-}
-
-function showComingSoon(feature: string) {
-  Alert.alert("Coming soon", `${feature} isn't set up yet.`);
 }
 
 export default function ProfileScreen() {
@@ -268,7 +258,7 @@ export default function ProfileScreen() {
             <Pressable
               onPress={() => {
                 if (!isPro) {
-                  Alert.alert(
+                  showAlert(
                     "Backup and Recovery is a Pro feature",
                     "Upgrade to VeriFast Pro to export and share your documents.",
                     [
@@ -278,6 +268,7 @@ export default function ProfileScreen() {
                         onPress: () => router.push("/subscription"),
                       },
                     ],
+                    { tone: "info", icon: "sparkles-outline" },
                   );
                   return;
                 }

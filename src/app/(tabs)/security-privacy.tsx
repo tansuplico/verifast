@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,13 +17,10 @@ import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
+import { showAlert, showComingSoon } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 const PASSWORD_MAX_LENGTH = 72;
-
-function showComingSoon(feature: string) {
-  Alert.alert("Coming soon", `${feature} isn't set up yet.`);
-}
 
 function providerLabel(provider: string | undefined) {
   if (provider === "google") return "Google";
@@ -47,11 +43,11 @@ export default function SecurityPrivacyScreen() {
 
   async function handleUpdatePassword() {
     if (!currentPassword || !newPassword) {
-      Alert.alert("Missing info", "Enter both your current and new password.");
+      showAlert("Missing info", "Enter both your current and new password.");
       return;
     }
     if (newPassword.length < 6) {
-      Alert.alert(
+      showAlert(
         "Password too short",
         "New password must be at least 6 characters.",
       );
@@ -71,7 +67,14 @@ export default function SecurityPrivacyScreen() {
 
     if (verifyError) {
       setIsSubmitting(false);
-      Alert.alert("Incorrect password", "Your current password doesn't match.");
+      showAlert(
+        "Incorrect password",
+        "Your current password doesn't match.",
+        undefined,
+        {
+          tone: "danger",
+        },
+      );
       return;
     }
 
@@ -82,13 +85,22 @@ export default function SecurityPrivacyScreen() {
     setIsSubmitting(false);
 
     if (updateError) {
-      Alert.alert("Couldn't update password", updateError.message);
+      showAlert("Couldn't update password", updateError.message, undefined, {
+        tone: "danger",
+      });
       return;
     }
 
     setCurrentPassword("");
     setNewPassword("");
-    Alert.alert("Password updated", "Your password has been changed.");
+    showAlert(
+      "Password updated",
+      "Your password has been changed.",
+      undefined,
+      {
+        tone: "success",
+      },
+    );
   }
 
   async function handleToggleTwoFactor(next: boolean) {
@@ -97,7 +109,9 @@ export default function SecurityPrivacyScreen() {
     const { error } = await setTwoFactorEnabled(next);
     setIsTogglingTwoFactor(false);
     if (error) {
-      Alert.alert("Couldn't update setting", error);
+      showAlert("Couldn't update setting", error, undefined, {
+        tone: "danger",
+      });
     }
   }
 

@@ -36,8 +36,8 @@ const UPCOMING_WINDOW_DAYS = 21;
 
 // Whether Calendar Sync is on is a per-device setting, not an account one
 // (the calendar events themselves live on this device), so it's persisted
-// in AsyncStorage rather than Supabase - unlike Push/Email below, which are
-// still local-state-only placeholders with nothing to persist to yet.
+// in AsyncStorage - same as Push Notifications (see
+// use-push-notifications-toggle.ts), just tracked under its own key.
 const CALENDAR_SYNC_STORAGE_KEY = "verifast:calendarSyncEnabled";
 
 // Shown once, the first time a user turns Calendar Sync on - after that,
@@ -116,9 +116,8 @@ export default function DeadlinesRemindersScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [reminders, setReminders] = useState<Reminder[]>([]);
 
-  // Local-state only, same as the 2FA toggle on Security & Privacy - no
-  // backend exists yet for a weekly email digest.
-  const [emailEnabled, setEmailEnabled] = useState(false);
+  // Push Notifications state/toggle comes from the shared hook so this
+  // screen and Profile can't drift out of sync with each other.
   const {
     enabled: pushEnabled,
     isSyncing: isSyncingPush,
@@ -539,19 +538,6 @@ export default function DeadlinesRemindersScreen() {
                 value={pushEnabled}
                 onValueChange={handlePushToggle}
                 disabled={isSyncingPush}
-              />
-            </View>
-
-            <View style={styles.settingRow}>
-              <View style={styles.settingTextGroup}>
-                <ThemedText type="smallBold">Email Reminders</ThemedText>
-                <ThemedText type="small" style={styles.settingSubtext}>
-                  Weekly digest of upcoming items
-                </ThemedText>
-              </View>
-              <ToggleSwitch
-                value={emailEnabled}
-                onValueChange={setEmailEnabled}
               />
             </View>
 

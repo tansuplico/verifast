@@ -86,15 +86,11 @@ export default function ProfileScreen() {
 
   // Push Notifications is a real, per-device setting shared with the
   // Deadlines & Reminders screen - see use-push-notifications-toggle.ts.
-  // Email/SMS below are still local-state-only placeholders: there is no
-  // notification_preferences table yet for either.
   const {
     enabled: pushEnabled,
     isSyncing: isSyncingPush,
     toggle: handlePushToggle,
   } = usePushNotificationsToggle(session?.user.id);
-  const [emailEnabled, setEmailEnabled] = useState(false);
-  const [smsEnabled, setSmsEnabled] = useState(false);
 
   const loadProfile = useCallback(async () => {
     if (!session) return;
@@ -219,7 +215,7 @@ export default function ProfileScreen() {
               NOTIFICATIONS
             </ThemedText>
 
-            <View style={styles.toggleRow}>
+            <View style={[styles.toggleRow, styles.toggleRowLast]}>
               <View style={styles.toggleText}>
                 <ThemedText type="smallBold">Push Notifications</ThemedText>
                 <ThemedText type="small" style={styles.toggleSubtext}>
@@ -233,29 +229,6 @@ export default function ProfileScreen() {
                 onValueChange={handlePushToggle}
                 disabled={isSyncingPush}
               />
-            </View>
-
-            <View style={styles.toggleRow}>
-              <View style={styles.toggleText}>
-                <ThemedText type="smallBold">Email Reminders</ThemedText>
-                <ThemedText type="small" style={styles.toggleSubtext}>
-                  Weekly document digest
-                </ThemedText>
-              </View>
-              <ToggleSwitch
-                value={emailEnabled}
-                onValueChange={setEmailEnabled}
-              />
-            </View>
-
-            <View style={[styles.toggleRow, styles.toggleRowLast]}>
-              <View style={styles.toggleText}>
-                <ThemedText type="smallBold">SMS Alerts</ThemedText>
-                <ThemedText type="small" style={styles.toggleSubtext}>
-                  Critical deadline texts
-                </ThemedText>
-              </View>
-              <ToggleSwitch value={smsEnabled} onValueChange={setSmsEnabled} />
             </View>
           </View>
 

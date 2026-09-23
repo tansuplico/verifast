@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -10,6 +10,7 @@ import {
   type EditableReminder,
 } from "@/components/add-reminder-modal";
 import { LoadErrorState } from "@/components/load-error-state";
+import { MonthCalendar } from "@/components/month-calendar";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
@@ -81,12 +82,6 @@ function dueInLabel(days: number) {
   return `in ${days} days`;
 }
 
-function showComingSoon(feature: string) {
-  showAlert("Coming soon", `${feature} isn't set up yet.`, undefined, {
-    tone: "info",
-    icon: "time-outline",
-  });
-}
 function ReminderSkeletonCard() {
   return (
     <View style={styles.card}>
@@ -129,6 +124,12 @@ export default function DeadlinesRemindersScreen() {
   const [editingReminder, setEditingReminder] =
     useState<EditableReminder | null>(null);
   const [loadError, setLoadError] = useState(false);
+  // Toggled by the header's calendar/list icon. Calendar month/selected day
+  // are independent of the list's own state so switching views back and
+  // forth doesn't reset anything unexpectedly.
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   // Which reminders have a notification scheduled on this device right
   // now - read back from the OS rather than inferred from the toggle, so
   // it reflects reality even for reminders too close to/past their due
@@ -214,6 +215,25 @@ export default function DeadlinesRemindersScreen() {
   const upcomingCount = reminders.filter(
     (r) => daysUntil(r.dueDate) <= UPCOMING_WINDOW_DAYS,
   ).length;
+
+  // due date -> one dot color per reminder on that day, reusing the same
+  // CATEGORY_STYLE colors as the list cards so the calendar and list read
+  // as the same data, not two different views with their own palette.
+  const markersByDate = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const reminder of reminders) {
+      const colors = map.get(reminder.dueDate) ?? [];
+      colors.push(CATEGORY_STYLE[reminder.category].color);
+      map.set(reminder.dueDate, colors);
+    }
+    return map;
+  }, [reminders]);
+
+  const selectedDateReminders = useMemo(
+    () =>
+      selectedDate ? reminders.filter((r) => r.dueDate === selectedDate) : [],
+    [reminders, selectedDate],
+  );
 
   // Deletes every synced reminder's calendar event and clears its
   // calendar_event_id - the mirror image of the backfill loop in
@@ -381,6 +401,85 @@ export default function DeadlinesRemindersScreen() {
     );
   }
 
+  // Shared by the List view and the Calendar view's selected-day list, so
+  // both render the exact same card instead of two copies drifting apart.
+  function renderReminderCard(reminder: Reminder) {
+    const style = CATEGORY_STYLE[reminder.category];
+    const days = daysUntil(reminder.dueDate);
+    return (
+      <Pressable
+        key={reminder.id}
+        style={styles.card}
+        onPress={() => {
+          setEditingReminder(reminder);
+          setIsAddModalVisible(true);
+        }}
+      >
+        <View style={styles.cardTopRow}>
+          <View
+            style={[
+              styles.categoryBadge,
+              { backgroundColor: `${style.color}1A` },
+            ]}
+          >
+            <Ionicons name={style.icon} size={13} color={style.color} />
+            <ThemedText
+              type="small"
+              style={[styles.categoryLabel, { color: style.color }]}
+            >
+              {style.label}
+            </ThemedText>
+          </View>
+          <View style={styles.cardIconRow}>
+            {reminder.calendarEventId && (
+              <Ionicons
+                name="calendar"
+                size={16}
+                color="#0d9488"
+                accessibilityLabel="Synced to your calendar"
+              />
+            )}
+            {scheduledReminderIds.has(reminder.id) ? (
+              <Ionicons
+                name="notifications"
+                size={16}
+                color="#0d9488"
+                accessibilityLabel="Alert scheduled for this reminder"
+              />
+            ) : (
+              <Pressable
+                hitSlop={8}
+                onPress={() =>
+                  showAlert(
+                    "No alert scheduled",
+                    pushEnabled
+                      ? "This deadline is too close to or past its alert window, so nothing is scheduled for it."
+                      : "Turn on Push Notifications below to get an alert for this reminder.",
+                    undefined,
+                    { tone: "info", icon: "notifications-outline" },
+                  )
+                }
+              >
+                <Ionicons
+                  name="notifications-outline"
+                  size={18}
+                  color="#94a3b8"
+                />
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        <ThemedText type="smallBold" style={styles.cardTitle}>
+          {reminder.title}
+        </ThemedText>
+        <ThemedText type="small" style={styles.cardSubtitle}>
+          {formatFullDate(reminder.dueDate)} · {dueInLabel(days)}
+        </ThemedText>
+      </Pressable>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -397,10 +496,20 @@ export default function DeadlinesRemindersScreen() {
           </ThemedText>
           <Pressable
             hitSlop={8}
-            onPress={() => showComingSoon("Calendar view")}
+            onPress={() => {
+              setViewMode((mode) => (mode === "list" ? "calendar" : "list"));
+              setSelectedDate(null);
+            }}
             style={styles.iconButton}
+            accessibilityLabel={
+              viewMode === "list" ? "Show calendar view" : "Show list view"
+            }
           >
-            <Ionicons name="calendar-outline" size={18} color="#1a1c20" />
+            <Ionicons
+              name={viewMode === "list" ? "calendar-outline" : "list-outline"}
+              size={18}
+              color="#1a1c20"
+            />
           </Pressable>
         </View>
 
@@ -421,108 +530,71 @@ export default function DeadlinesRemindersScreen() {
             </ThemedText>
           </View>
 
-          <ThemedText type="smallBold" style={styles.sectionLabel}>
-            UPCOMING
-          </ThemedText>
-
-          {!isLoading &&
-            reminders.length === 0 &&
-            (loadError ? (
-              <LoadErrorState onRetry={() => loadReminders()} />
-            ) : (
-              <ThemedText type="small" style={styles.emptyText}>
-                No deadlines or reminders right now
+          {viewMode === "list" ? (
+            <>
+              <ThemedText type="smallBold" style={styles.sectionLabel}>
+                UPCOMING
               </ThemedText>
-            ))}
 
-          <View style={styles.list}>
-            {isLoading &&
-              reminders.length === 0 &&
-              Array.from({ length: 4 }).map((_, i) => (
-                <ReminderSkeletonCard key={`reminder-skeleton-${i}`} />
-              ))}
-
-            {reminders.map((reminder) => {
-              const style = CATEGORY_STYLE[reminder.category];
-              const days = daysUntil(reminder.dueDate);
-              return (
-                <Pressable
-                  key={reminder.id}
-                  style={styles.card}
-                  onPress={() => {
-                    setEditingReminder(reminder);
-                    setIsAddModalVisible(true);
-                  }}
-                >
-                  <View style={styles.cardTopRow}>
-                    <View
-                      style={[
-                        styles.categoryBadge,
-                        { backgroundColor: `${style.color}1A` },
-                      ]}
-                    >
-                      <Ionicons
-                        name={style.icon}
-                        size={13}
-                        color={style.color}
-                      />
-                      <ThemedText
-                        type="small"
-                        style={[styles.categoryLabel, { color: style.color }]}
-                      >
-                        {style.label}
-                      </ThemedText>
-                    </View>
-                    <View style={styles.cardIconRow}>
-                      {reminder.calendarEventId && (
-                        <Ionicons
-                          name="calendar"
-                          size={16}
-                          color="#0d9488"
-                          accessibilityLabel="Synced to your calendar"
-                        />
-                      )}
-                      {scheduledReminderIds.has(reminder.id) ? (
-                        <Ionicons
-                          name="notifications"
-                          size={16}
-                          color="#0d9488"
-                          accessibilityLabel="Alert scheduled for this reminder"
-                        />
-                      ) : (
-                        <Pressable
-                          hitSlop={8}
-                          onPress={() =>
-                            showAlert(
-                              "No alert scheduled",
-                              pushEnabled
-                                ? "This deadline is too close to or past its alert window, so nothing is scheduled for it."
-                                : "Turn on Push Notifications below to get an alert for this reminder.",
-                              undefined,
-                              { tone: "info", icon: "notifications-outline" },
-                            )
-                          }
-                        >
-                          <Ionicons
-                            name="notifications-outline"
-                            size={18}
-                            color="#94a3b8"
-                          />
-                        </Pressable>
-                      )}
-                    </View>
-                  </View>
-
-                  <ThemedText type="smallBold" style={styles.cardTitle}>
-                    {reminder.title}
+              {!isLoading &&
+                reminders.length === 0 &&
+                (loadError ? (
+                  <LoadErrorState onRetry={() => loadReminders()} />
+                ) : (
+                  <ThemedText type="small" style={styles.emptyText}>
+                    No deadlines or reminders right now
                   </ThemedText>
-                  <ThemedText type="small" style={styles.cardSubtitle}>
-                    {formatFullDate(reminder.dueDate)} · {dueInLabel(days)}
+                ))}
+
+              <View style={styles.list}>
+                {isLoading &&
+                  reminders.length === 0 &&
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <ReminderSkeletonCard key={`reminder-skeleton-${i}`} />
+                  ))}
+
+                {reminders.map(renderReminderCard)}
+              </View>
+            </>
+          ) : (
+            <>
+              <MonthCalendar
+                month={calendarMonth}
+                markersByDate={markersByDate}
+                selectedDate={selectedDate}
+                onSelectDate={(date) =>
+                  setSelectedDate((current) => (current === date ? null : date))
+                }
+                onChangeMonth={(direction) =>
+                  setCalendarMonth(
+                    (current) =>
+                      new Date(
+                        current.getFullYear(),
+                        current.getMonth() + direction,
+                        1,
+                      ),
+                  )
+                }
+              />
+
+              {selectedDate && (
+                <View style={styles.selectedDaySection}>
+                  <ThemedText type="smallBold" style={styles.sectionLabel}>
+                    {formatFullDate(selectedDate).toUpperCase()}
                   </ThemedText>
-                </Pressable>
-              );
-            })}
-          </View>
+                  {selectedDateReminders.length === 0 ? (
+                    <ThemedText type="small" style={styles.emptyText}>
+                      No deadlines this day
+                    </ThemedText>
+                  ) : (
+                    <View style={styles.list}>
+                      {selectedDateReminders.map(renderReminderCard)}
+                    </View>
+                  )}
+                </View>
+              )}
+            </>
+          )}
 
           <View style={styles.settingsList}>
             <View style={styles.settingRow}>
@@ -620,6 +692,7 @@ const styles = StyleSheet.create({
   bannerText: { flex: 1, color: "#92400e" },
   sectionLabel: { color: "#8b8f99", letterSpacing: 0.5 },
   list: { gap: Spacing.two },
+  selectedDaySection: { gap: Spacing.two },
   card: {
     backgroundColor: "#ffffff",
     borderRadius: Spacing.three,

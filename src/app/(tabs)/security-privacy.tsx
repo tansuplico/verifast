@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import type { UserIdentity } from "@supabase/supabase-js";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -17,7 +18,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
-import { showAlert, showComingSoon } from "@/providers/alert-provider";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 const PASSWORD_MAX_LENGTH = 72;
@@ -29,7 +30,12 @@ function providerLabel(provider: string | undefined) {
 
 export default function SecurityPrivacyScreen() {
   const router = useRouter();
-  const { session, setTwoFactorEnabled } = useAuth();
+  const {
+    session,
+    setTwoFactorEnabled,
+    linkGoogleIdentity,
+    unlinkGoogleIdentity,
+  } = useAuth();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -40,6 +46,59 @@ export default function SecurityPrivacyScreen() {
   const twoFactorEnabled =
     session?.user.user_metadata?.two_factor_enabled === true;
   const [isTogglingTwoFactor, setIsTogglingTwoFactor] = useState(false);
+
+  // Fetched fresh via getUserIdentities() rather than read off
+  // session.user.identities, per Supabase's own docs - it's the source of
+  // truth right after a link/unlink, whereas the session object can lag.
+  const [identities, setIdentities] = useState<UserIdentity[]>([]);
+  const [isLoadingIdentities, setIsLoadingIdentities] = useState(true);
+  const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
+  const [unlinkingProvider, setUnlinkingProvider] = useState<string | null>(
+    null,
+  );
+
+  async function refreshIdentities() {
+    const { data, error } = await supabase.auth.getUserIdentities();
+    if (!error) {
+      setIdentities(data.identities);
+    }
+    setIsLoadingIdentities(false);
+  }
+
+  useEffect(() => {
+    refreshIdentities();
+  }, []);
+
+  async function handleLinkGoogle() {
+    if (isLinkingGoogle) return;
+    setIsLinkingGoogle(true);
+    const { error } = await linkGoogleIdentity();
+    setIsLinkingGoogle(false);
+    if (error) {
+      showAlert("Couldn't link Google account", error, undefined, {
+        tone: "danger",
+      });
+      return;
+    }
+    await refreshIdentities();
+  }
+
+  async function handleUnlink(identity: UserIdentity) {
+    if (unlinkingProvider) return;
+    setUnlinkingProvider(identity.provider);
+    // Only Google can be unlinked from this screen today - email/password
+    // is the account's baseline sign-in method and isn't offered as an
+    // unlink target here.
+    const { error } = await unlinkGoogleIdentity();
+    setUnlinkingProvider(null);
+    if (error) {
+      showAlert("Couldn't unlink account", error, undefined, {
+        tone: "danger",
+      });
+      return;
+    }
+    await refreshIdentities();
+  }
 
   async function handleUpdatePassword() {
     if (!currentPassword || !newPassword) {
@@ -114,8 +173,6 @@ export default function SecurityPrivacyScreen() {
       });
     }
   }
-
-  const connectedProvider = providerLabel(session?.user.app_metadata?.provider);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -253,22 +310,95 @@ export default function SecurityPrivacyScreen() {
               />
             </View>
 
-            <Pressable
-              onPress={() => showComingSoon("Managing connected accounts")}
-            >
-              <View style={[styles.controlRow, styles.controlRowLast]}>
-                <View style={styles.controlText}>
-                  <ThemedText type="smallBold" style={styles.controlTitle}>
-                    Connected Accounts
-                  </ThemedText>
-                  <ThemedText type="small" style={styles.controlSubtext}>
-                    {connectedProvider}
-                    {session?.user.email ? `: ${session.user.email}` : ""}
-                  </ThemedText>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color="#c4c8d1" />
-              </View>
-            </Pressable>
+            <ThemedText type="small" style={styles.subsectionLabel}>
+              CONNECTED ACCOUNTS
+            </ThemedText>
+
+            {isLoadingIdentities ? (
+              <ActivityIndicator
+                color="#0d9488"
+                style={styles.identitiesLoader}
+              />
+            ) : (
+              <>
+                {identities.map((identity, index) => {
+                  const isLast =
+                    index === identities.length - 1 &&
+                    identities.some((i) => i.provider === "google");
+                  const canUnlink =
+                    identity.provider === "google" && identities.length > 1;
+                  return (
+                    <View
+                      key={identity.identity_id}
+                      style={[
+                        styles.controlRow,
+                        isLast && styles.controlRowLast,
+                      ]}
+                    >
+                      <View style={styles.controlText}>
+                        <ThemedText
+                          type="smallBold"
+                          style={styles.controlTitle}
+                        >
+                          {providerLabel(identity.provider)}
+                        </ThemedText>
+                        <ThemedText type="small" style={styles.controlSubtext}>
+                          {identity.identity_data?.email ??
+                            session?.user.email ??
+                            ""}
+                        </ThemedText>
+                      </View>
+                      {canUnlink &&
+                        (unlinkingProvider === identity.provider ? (
+                          <ActivityIndicator color="#0d9488" />
+                        ) : (
+                          <Pressable
+                            hitSlop={8}
+                            onPress={() => handleUnlink(identity)}
+                          >
+                            <ThemedText
+                              type="small"
+                              style={styles.unlinkAction}
+                            >
+                              Unlink
+                            </ThemedText>
+                          </Pressable>
+                        ))}
+                    </View>
+                  );
+                })}
+
+                {!identities.some((i) => i.provider === "google") && (
+                  <Pressable
+                    onPress={handleLinkGoogle}
+                    disabled={isLinkingGoogle}
+                  >
+                    <View style={[styles.controlRow, styles.controlRowLast]}>
+                      <View style={styles.controlText}>
+                        <ThemedText
+                          type="smallBold"
+                          style={styles.controlTitle}
+                        >
+                          Link Google Account
+                        </ThemedText>
+                        <ThemedText type="small" style={styles.controlSubtext}>
+                          Sign in with Google as well as your password
+                        </ThemedText>
+                      </View>
+                      {isLinkingGoogle ? (
+                        <ActivityIndicator color="#0d9488" />
+                      ) : (
+                        <Ionicons
+                          name="chevron-forward"
+                          size={16}
+                          color="#c4c8d1"
+                        />
+                      )}
+                    </View>
+                  </Pressable>
+                )}
+              </>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -313,6 +443,14 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   sectionLabel: { color: "#1a1c20", letterSpacing: 0.5, fontWeight: "700" },
+  subsectionLabel: {
+    color: "#8b8f99",
+    letterSpacing: 0.5,
+    fontWeight: "700",
+    marginTop: Spacing.one,
+  },
+  identitiesLoader: { paddingVertical: Spacing.two },
+  unlinkAction: { color: "#dc2626", fontWeight: "600" },
   fieldGroup: { gap: Spacing.one },
   fieldLabel: { color: "#1a1c20" },
   inputRow: {

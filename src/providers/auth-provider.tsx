@@ -39,6 +39,8 @@ type AuthContextValue = {
   ) => Promise<{ error: string | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
+  linkGoogleIdentity: () => Promise<{ error: string | null }>;
+  unlinkGoogleIdentity: () => Promise<{ error: string | null }>;
   setTwoFactorEnabled: (enabled: boolean) => Promise<{ error: string | null }>;
   verifyEmailOtpChallenge: (
     code: string,
@@ -289,6 +291,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         await maybeStartEmailOtpChallenge(sessionData.user);
         return { error: null };
+      },
+      async linkGoogleIdentity() {
+        // Mirrors signInWithGoogle's redirect-capture flow above -
+        // linkIdentity() goes through the same client-configured (implicit,
+        // per lib/supabase.ts having no flowType override) OAuth flow, just
+        // attaching the resulting identity to the already-signed-in user
+        // instead of starting a fresh session. Requires "Enable Manual
+        // Linking" to be turned on in the Supabase dashboard's Auth
+        // settings - without it this errors immediately, before a browser
+        // even opens.
+        const redirectTo = makeRedirectUri();
+        const { data, error } = await supabase.auth.linkIdentity({
+          provider: "google",
+          options: { redirectTo, skipBrowserRedirect: true },
+        });
+        if (error) {
+          return { error: error.message };
+        }
+
+        const result = await WebBrowser.openAuthSessionAsync(
+          data.url ?? "",
+          redirectTo,
+        );
+        if (result.type !== "success") {
+          // User cancelled or dismissed the browser - not a real error.
+          return { error: null };
+        }
+
+        const { params, errorCode } = QueryParams.getQueryParams(result.url);
+        if (errorCode) {
+          return { error: errorCode };
+        }
+        if (!params.access_token || !params.refresh_token) {
+          return { error: "Linking didn't return an updated session." };
+        }
+
+        // The new identity is attached server-side already - this just
+        // refreshes the local session so session.user reflects it right
+        // away instead of waiting for the next natural token refresh.
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+        });
+        if (sessionError) {
+          return { error: sessionError.message };
+        }
+        return { error: null };
+      },
+      async unlinkGoogleIdentity() {
+        const { data, error: identitiesError } =
+          await supabase.auth.getUserIdentities();
+        if (identitiesError) {
+          return { error: identitiesError.message };
+        }
+        const googleIdentity = data.identities.find(
+          (identity) => identity.provider === "google",
+        );
+        if (!googleIdentity) {
+          return { error: "No Google account is linked." };
+        }
+        // Supabase itself rejects unlinking someone's only identity, so
+        // that "don't lock yourself out" check doesn't need duplicating
+        // here - whatever error it returns (including that one) just
+        // surfaces to the caller as-is.
+        const { error } = await supabase.auth.unlinkIdentity(googleIdentity);
+        return { error: error?.message ?? null };
       },
       async setTwoFactorEnabled(enabled) {
         const { error } = await supabase.auth.updateUser({

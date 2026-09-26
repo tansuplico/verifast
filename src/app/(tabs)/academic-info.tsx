@@ -17,6 +17,7 @@ import {
 import { LoadErrorState } from "@/components/load-error-state";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
+import { ViewAcademicInfoModal } from "@/components/view-academic-info-modal";
 import {
   CATEGORY_STYLE,
   type AcademicInfoCategory,
@@ -79,6 +80,8 @@ export default function AcademicInfoScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<AcademicInfoItem | null>(null);
+  const [isViewModalVisible, setIsViewModalVisible] = useState(false);
+  const [viewingItem, setViewingItem] = useState<AcademicInfoRow | null>(null);
   const [loadError, setLoadError] = useState(false);
 
   const loadData = useCallback(
@@ -207,8 +210,8 @@ export default function AcademicInfoScreen() {
               key={item.id}
               style={styles.card}
               onPress={() => {
-                setEditingItem(item);
-                setIsModalVisible(true);
+                setViewingItem(item);
+                setIsViewModalVisible(true);
               }}
             >
               <View style={styles.cardHeaderRow}>
@@ -227,11 +230,28 @@ export default function AcademicInfoScreen() {
                     >
                       {item.title}
                     </ThemedText>
-                    <ThemedText
-                      style={[styles.categoryTag, { color: style.color }]}
-                    >
-                      {style.label}
-                    </ThemedText>
+                    <View style={styles.categoryRow}>
+                      <ThemedText
+                        style={[styles.categoryTag, { color: style.color }]}
+                      >
+                        {style.label}
+                      </ThemedText>
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => {
+                          setEditingItem(item);
+                          setIsModalVisible(true);
+                        }}
+                        style={styles.cardMenuButton}
+                        accessibilityLabel="Edit entry"
+                      >
+                        <Ionicons
+                          name="ellipsis-vertical"
+                          size={16}
+                          color="#8b8f99"
+                        />
+                      </Pressable>
+                    </View>
                   </View>
 
                   {item.content && (
@@ -273,6 +293,12 @@ export default function AcademicInfoScreen() {
         userId={session?.user.id}
         editingItem={editingItem}
         onSaved={() => loadData()}
+      />
+
+      <ViewAcademicInfoModal
+        visible={isViewModalVisible}
+        onClose={() => setIsViewModalVisible(false)}
+        item={viewingItem}
       />
     </SafeAreaView>
   );
@@ -362,7 +388,14 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   cardTitle: { flex: 1, color: "#1a1c20" },
-  categoryTag: { fontSize: 12, fontWeight: "700", flexShrink: 0 },
+  categoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+  },
+  categoryTag: { fontSize: 12, fontWeight: "700" },
+  cardMenuButton: { padding: 2 },
   cardContent: { color: "#60646C" },
   cardFooterRow: {
     flexDirection: "row",

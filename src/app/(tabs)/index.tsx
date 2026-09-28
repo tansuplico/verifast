@@ -356,11 +356,11 @@ export default function HomeScreen() {
               <View key={alert.id} style={styles.alertRow}>
                 <View
                   style={[
-                    styles.alertBadge,
-                    { backgroundColor: `${alert.color}1A` },
+                    styles.docIconBadge,
+                    { backgroundColor: alert.color },
                   ]}
                 >
-                  <Ionicons name={alert.icon} size={16} color={alert.color} />
+                  <Ionicons name={alert.icon} size={18} color="#ffffff" />
                 </View>
                 <View style={styles.alertTextGroup}>
                   <ThemedText
@@ -545,7 +545,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   alertTextGroup: { flex: 1, gap: 2 },
-  alertDate: { fontWeight: "700" },
+  alertDate: { fontWeight: "900" },
   alertText: { color: "#3a3f4b" },
   requestStatusPill: {
     flexDirection: "row",

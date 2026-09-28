@@ -12,5 +12,5 @@ export const CATEGORY_STYLE: Record<
     color: "#0d9488",
     label: "Checklist",
   },
-  payment: { icon: "card-outline", color: "#dc2626", label: "Payment" },
+  payment: { icon: "card-outline", color: "#2563eb", label: "Payment" },
 };

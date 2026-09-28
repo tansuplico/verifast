@@ -35,6 +35,14 @@ import { useAuth } from "@/providers/auth-provider";
 // the next 3 weeks").
 const UPCOMING_WINDOW_DAYS = 21;
 
+// Overdue badge + the "N overdue" summary banner. Kept distinct from every
+// CATEGORY_STYLE color so it never reads as a category.
+const OVERDUE_COLOR = "#dc2626";
+
+// Filled "Nothing due" banner. A step deeper than the app's teal (#0d9488)
+// so white text on it stays comfortably readable.
+const EMPTY_BANNER_COLOR = "#0f766e";
+
 // Whether Calendar Sync is on is a per-device setting, not an account one
 // (the calendar events themselves live on this device), so it's persisted
 // in AsyncStorage - same as Push Notifications (see
@@ -75,8 +83,9 @@ function daysUntil(dateString: string) {
   );
 }
 
+// Overdue reminders get their own badge on the card instead of a label
+// here, so this only covers today/future.
 function dueInLabel(days: number) {
-  if (days < 0) return "overdue";
   if (days === 0) return "today";
   if (days === 1) return "in 1 day";
   return `in ${days} days`;
@@ -212,9 +221,20 @@ export default function DeadlinesRemindersScreen() {
     }, [loadReminders]),
   );
 
-  const upcomingCount = reminders.filter(
-    (r) => daysUntil(r.dueDate) <= UPCOMING_WINDOW_DAYS,
-  ).length;
+  // Overdue reminders are counted separately rather than lumped in with
+  // "upcoming" - a deadline that already passed isn't upcoming.
+  const upcomingCount = reminders.filter((r) => {
+    const days = daysUntil(r.dueDate);
+    return days >= 0 && days <= UPCOMING_WINDOW_DAYS;
+  }).length;
+  const overdueCount = reminders.filter((r) => daysUntil(r.dueDate) < 0).length;
+  // The plain "Nothing due" state renders as a filled banner (loading and
+  // error states stay as plain text), which replaces the summary's
+  // underline divider.
+  const showEmptyBanner =
+    upcomingCount === 0 &&
+    !(isLoading && reminders.length === 0) &&
+    !(loadError && reminders.length === 0);
 
   // due date -> one dot color per reminder on that day, reusing the same
   // CATEGORY_STYLE colors as the list cards so the calendar and list read
@@ -416,19 +436,32 @@ export default function DeadlinesRemindersScreen() {
         }}
       >
         <View style={styles.cardTopRow}>
-          <View
-            style={[
-              styles.categoryBadge,
-              { backgroundColor: `${style.color}1A` },
-            ]}
-          >
-            <Ionicons name={style.icon} size={13} color={style.color} />
-            <ThemedText
-              type="small"
-              style={[styles.categoryLabel, { color: style.color }]}
+          <View style={styles.badgeRow}>
+            <View
+              style={[styles.categoryBadge, { backgroundColor: style.color }]}
             >
-              {style.label}
-            </ThemedText>
+              <Ionicons name={style.icon} size={13} color="#ffffff" />
+              <ThemedText type="small" style={styles.categoryLabel}>
+                {style.label}
+              </ThemedText>
+            </View>
+            {days < 0 && (
+              <View
+                style={[
+                  styles.categoryBadge,
+                  { backgroundColor: OVERDUE_COLOR },
+                ]}
+              >
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={13}
+                  color="#ffffff"
+                />
+                <ThemedText type="small" style={styles.categoryLabel}>
+                  Overdue
+                </ThemedText>
+              </View>
+            )}
           </View>
           <View style={styles.cardIconRow}>
             {reminder.calendarEventId && (
@@ -474,7 +507,9 @@ export default function DeadlinesRemindersScreen() {
           {reminder.title}
         </ThemedText>
         <ThemedText type="small" style={styles.cardSubtitle}>
-          {formatFullDate(reminder.dueDate)} · {dueInLabel(days)}
+          {days < 0
+            ? formatFullDate(reminder.dueDate)
+            : `${formatFullDate(reminder.dueDate)} · ${dueInLabel(days)}`}
         </ThemedText>
       </Pressable>
     );
@@ -517,17 +552,65 @@ export default function DeadlinesRemindersScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.banner}>
-            <Ionicons name="time-outline" size={18} color="#b45309" />
-            <ThemedText type="small" style={styles.bannerText}>
-              {isLoading && reminders.length === 0
-                ? "Loading your deadlines..."
-                : loadError && reminders.length === 0
-                  ? "Couldn't load your deadlines — check your connection."
-                  : `You have ${upcomingCount} upcoming deadline${
-                      upcomingCount === 1 ? "" : "s"
-                    } in the next 3 weeks.`}
-            </ThemedText>
+          <View
+            style={[
+              styles.summary,
+              showEmptyBanner && styles.summaryWithBanner,
+            ]}
+          >
+            {isLoading && reminders.length === 0 ? (
+              <ThemedText type="small" style={styles.summaryMuted}>
+                Loading your deadlines...
+              </ThemedText>
+            ) : loadError && reminders.length === 0 ? (
+              <ThemedText type="small" style={styles.summaryMuted}>
+                Couldn&apos;t load your deadlines — check your connection.
+              </ThemedText>
+            ) : (
+              <>
+                {upcomingCount > 0 ? (
+                  <View style={styles.summaryMain}>
+                    <ThemedText style={styles.summaryNumber}>
+                      {upcomingCount}
+                    </ThemedText>
+                    <ThemedText type="small" style={styles.summaryMuted}>
+                      {upcomingCount === 1 ? "deadline" : "deadlines"} due in
+                      the next 3 weeks
+                    </ThemedText>
+                  </View>
+                ) : (
+                  <View
+                    style={[
+                      styles.banner,
+                      { backgroundColor: EMPTY_BANNER_COLOR },
+                    ]}
+                  >
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={20}
+                      color="#ffffff"
+                    />
+                    <ThemedText type="smallBold" style={styles.bannerText}>
+                      Nothing due in the next 3 weeks
+                    </ThemedText>
+                  </View>
+                )}
+                {overdueCount > 0 && (
+                  <View
+                    style={[styles.banner, { backgroundColor: OVERDUE_COLOR }]}
+                  >
+                    <Ionicons
+                      name="alert-circle-outline"
+                      size={20}
+                      color="#ffffff"
+                    />
+                    <ThemedText type="smallBold" style={styles.bannerText}>
+                      {overdueCount} overdue
+                    </ThemedText>
+                  </View>
+                )}
+              </>
+            )}
           </View>
 
           {viewMode === "list" ? (
@@ -680,16 +763,38 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.six,
     gap: Spacing.three,
   },
+  summary: {
+    marginTop: Spacing.three,
+    paddingBottom: Spacing.three,
+    gap: Spacing.two,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#eceef1",
+  },
+  summaryWithBanner: {
+    paddingBottom: 0,
+    borderBottomWidth: 0,
+  },
   banner: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: Spacing.two,
-    backgroundColor: "#fef9e7",
     borderRadius: Spacing.three,
-    padding: Spacing.three,
-    marginTop: Spacing.three,
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.three,
   },
-  bannerText: { flex: 1, color: "#92400e" },
+  bannerText: { flex: 1, color: "#ffffff" },
+  summaryMain: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: Spacing.two,
+  },
+  summaryNumber: {
+    fontSize: 32,
+    lineHeight: 36,
+    fontWeight: "700",
+    color: "#1a1c20",
+  },
+  summaryMuted: { color: "#60646C" },
   sectionLabel: { color: "#8b8f99", letterSpacing: 0.5 },
   list: { gap: Spacing.two },
   selectedDaySection: { gap: Spacing.two },
@@ -711,6 +816,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.two,
   },
+  badgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
+  },
   categoryBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -719,7 +829,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
   },
-  categoryLabel: { fontWeight: "700" },
+  categoryLabel: { fontWeight: "700", color: "#ffffff" },
   cardTitle: { color: "#1a1c20", marginTop: 2 },
   cardSubtitle: { color: "#8b8f99" },
   emptyText: { color: "#8b8f99" },

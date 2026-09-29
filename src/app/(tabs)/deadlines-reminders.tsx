@@ -438,10 +438,16 @@ export default function DeadlinesRemindersScreen() {
         <View style={styles.cardTopRow}>
           <View style={styles.badgeRow}>
             <View
-              style={[styles.categoryBadge, { backgroundColor: style.color }]}
+              style={[
+                styles.categoryBadge,
+                { backgroundColor: `${style.color}1A` },
+              ]}
             >
-              <Ionicons name={style.icon} size={13} color="#ffffff" />
-              <ThemedText type="small" style={styles.categoryLabel}>
+              <Ionicons name={style.icon} size={13} color={style.color} />
+              <ThemedText
+                type="small"
+                style={[styles.categoryLabel, { color: style.color }]}
+              >
                 {style.label}
               </ThemedText>
             </View>
@@ -449,15 +455,18 @@ export default function DeadlinesRemindersScreen() {
               <View
                 style={[
                   styles.categoryBadge,
-                  { backgroundColor: OVERDUE_COLOR },
+                  { backgroundColor: `${OVERDUE_COLOR}1A` },
                 ]}
               >
                 <Ionicons
                   name="alert-circle-outline"
                   size={13}
-                  color="#ffffff"
+                  color={OVERDUE_COLOR}
                 />
-                <ThemedText type="small" style={styles.categoryLabel}>
+                <ThemedText
+                  type="small"
+                  style={[styles.categoryLabel, { color: OVERDUE_COLOR }]}
+                >
                   Overdue
                 </ThemedText>
               </View>
@@ -582,29 +591,38 @@ export default function DeadlinesRemindersScreen() {
                   <View
                     style={[
                       styles.banner,
-                      { backgroundColor: EMPTY_BANNER_COLOR },
+                      { backgroundColor: `${EMPTY_BANNER_COLOR}1A` },
                     ]}
                   >
                     <Ionicons
                       name="checkmark-circle-outline"
                       size={20}
-                      color="#ffffff"
+                      color={EMPTY_BANNER_COLOR}
                     />
-                    <ThemedText type="smallBold" style={styles.bannerText}>
+                    <ThemedText
+                      type="smallBold"
+                      style={[styles.bannerText, { color: EMPTY_BANNER_COLOR }]}
+                    >
                       Nothing due in the next 3 weeks
                     </ThemedText>
                   </View>
                 )}
                 {overdueCount > 0 && (
                   <View
-                    style={[styles.banner, { backgroundColor: OVERDUE_COLOR }]}
+                    style={[
+                      styles.banner,
+                      { backgroundColor: `${OVERDUE_COLOR}1A` },
+                    ]}
                   >
                     <Ionicons
                       name="alert-circle-outline"
                       size={20}
-                      color="#ffffff"
+                      color={OVERDUE_COLOR}
                     />
-                    <ThemedText type="smallBold" style={styles.bannerText}>
+                    <ThemedText
+                      type="smallBold"
+                      style={[styles.bannerText, { color: OVERDUE_COLOR }]}
+                    >
                       {overdueCount} overdue
                     </ThemedText>
                   </View>
@@ -782,7 +800,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.three,
   },
-  bannerText: { flex: 1, color: "#ffffff" },
+  bannerText: { flex: 1 },
   summaryMain: {
     flexDirection: "row",
     alignItems: "baseline",
@@ -829,7 +847,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
   },
-  categoryLabel: { fontWeight: "700", color: "#ffffff" },
+  categoryLabel: { fontWeight: "700" },
   cardTitle: { color: "#1a1c20", marginTop: 2 },
   cardSubtitle: { color: "#8b8f99" },
   emptyText: { color: "#8b8f99" },

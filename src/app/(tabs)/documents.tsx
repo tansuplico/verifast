@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
+import * as Sharing from "expo-sharing";
 import { useCallback, useMemo, useState } from "react";
 import {
   Linking,
@@ -22,7 +23,19 @@ import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 import { LoadErrorState } from "@/components/load-error-state";
+import { OfflineNotice } from "@/components/offline-notice";
 import { SkeletonBlock } from "@/components/skeleton";
+import { useIsOnline } from "@/hooks/use-network-status";
+import {
+  cacheDocuments,
+  cacheFolders,
+  getCachedDocuments,
+  getCachedFolders,
+} from "@/lib/offline-db";
+import {
+  cacheDocumentFileForOffline,
+  getOfflineFileUri,
+} from "@/lib/offline-files";
 import { useToast } from "@/providers/toast-provider";
 import type { DocumentRow } from "@/types/documents";
 
@@ -133,6 +146,8 @@ export default function DocumentsScreen() {
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [actionsDoc, setActionsDoc] = useState<DocumentRow | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [isShowingCache, setIsShowingCache] = useState(false);
+  const isOnline = useIsOnline();
   const [subscriptionStatus, setSubscriptionStatus] =
     useState<SubscriptionStatus | null>(null);
 
@@ -166,40 +181,104 @@ export default function DocumentsScreen() {
           "Failed to load documents",
           foldersResult.error ?? documentsResult.error,
         );
-        setLoadError(true);
+        // Same fallback pattern as Academic Info: offline (or a fetch that
+        // failed while offline) shows the last cached list rather than a
+        // hard error, since that's the whole point of caching it.
+        const cachedFolders = getCachedFolders(session.user.id);
+        const cachedDocuments = getCachedDocuments(session.user.id);
+        if (!isOnline && cachedDocuments.length > 0) {
+          setLoadError(false);
+          setIsShowingCache(true);
+          setFolders(cachedFolders as FolderRow[]);
+          setDocuments(cachedDocuments);
+        } else {
+          setLoadError(true);
+          setIsShowingCache(false);
+        }
       } else {
         setLoadError(false);
+        setIsShowingCache(false);
         setFolders(foldersResult.data ?? []);
         setDocuments(documentsResult.data ?? []);
         setSubscriptionStatus(subscriptionResult.data?.status ?? null);
+        cacheFolders(session.user.id, foldersResult.data ?? []);
+        cacheDocuments(session.user.id, documentsResult.data ?? []);
       }
 
       isRefresh ? setIsRefreshing(false) : setIsLoading(false);
     },
-    [session],
+    [session, isOnline],
   );
 
-  const handleDocPress = useCallback(async (doc: DocumentRow) => {
-    if (!doc.file_path) return;
+  const handleDocPress = useCallback(
+    async (doc: DocumentRow) => {
+      if (!doc.file_path) return;
 
-    const { data, error } = await supabase.storage
-      .from("documents")
-      .createSignedUrl(doc.file_path, 60);
+      // Online path first (freshest signed URL), same as before - skipped
+      // entirely when we already know we're offline, so there's no pointless
+      // wait for a request that can't succeed.
+      if (isOnline) {
+        const { data, error } = await supabase.storage
+          .from("documents")
+          .createSignedUrl(doc.file_path, 60);
 
-    if (error || !data?.signedUrl) {
-      showAlert("Couldn't open file", "Please try again.", undefined, {
-        tone: "danger",
+        if (!error && data?.signedUrl) {
+          if (doc.mime_type?.startsWith("image/")) {
+            setPreviewDoc(doc);
+            setPreviewImageUrl(data.signedUrl);
+          } else {
+            Linking.openURL(data.signedUrl);
+          }
+          // Fire-and-forget: save a local copy so this document opens
+          // offline next time. Doesn't block or affect the view that just
+          // happened either way.
+          const fileName = doc.file_path.split("/").pop() ?? doc.name;
+          cacheDocumentFileForOffline(doc.id, data.signedUrl, fileName);
+          return;
+        }
+      }
+
+      // Offline, or the online attempt failed - fall back to a local copy
+      // from an earlier view, if one exists.
+      const localUri = getOfflineFileUri(doc.id);
+      if (!localUri) {
+        showAlert(
+          "Not available offline",
+          "Open this document once while online to make it available offline.",
+          undefined,
+          { tone: "danger" },
+        );
+        return;
+      }
+
+      if (doc.mime_type?.startsWith("image/")) {
+        setPreviewDoc(doc);
+        setPreviewImageUrl(localUri);
+        return;
+      }
+
+      // Local file:// URIs can't go through Linking.openURL on Android
+      // (rejected as "exposed beyond app through Intent.getData()" without a
+      // FileProvider) - Sharing already handles that correctly and is the
+      // same mechanism backup-recovery.tsx uses for its exported files, so
+      // this reuses a path already proven to work in this app.
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        showAlert(
+          "Can't open file",
+          "Sharing isn't available on this device.",
+          undefined,
+          { tone: "danger" },
+        );
+        return;
+      }
+      await Sharing.shareAsync(localUri, {
+        mimeType: doc.mime_type ?? undefined,
+        dialogTitle: doc.name,
       });
-      return;
-    }
-
-    if (doc.mime_type?.startsWith("image/")) {
-      setPreviewDoc(doc);
-      setPreviewImageUrl(data.signedUrl);
-    } else {
-      Linking.openURL(data.signedUrl);
-    }
-  }, []);
+    },
+    [isOnline],
+  );
 
   const handleDeleteDocument = useCallback(
     (doc: DocumentRow) => {
@@ -416,6 +495,8 @@ export default function DocumentsScreen() {
           ALL FILES
         </ThemedText>
 
+        {isShowingCache && filteredDocuments.length > 0 && <OfflineNotice />}
+
         {isLoading &&
           Array.from({ length: 5 }).map((_, i) => (
             <DocumentSkeletonRow key={`doc-skeleton-${i}`} />
@@ -424,7 +505,14 @@ export default function DocumentsScreen() {
         {!isLoading &&
           filteredDocuments.length === 0 &&
           (loadError ? (
-            <LoadErrorState onRetry={() => loadDocuments()} />
+            <LoadErrorState
+              message={
+                isOnline
+                  ? undefined
+                  : "You're offline and don't have anything saved yet."
+              }
+              onRetry={() => loadDocuments()}
+            />
           ) : (
             <ThemedText type="small" style={styles.emptyText}>
               {searchQuery

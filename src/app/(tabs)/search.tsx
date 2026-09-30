@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useState } from "react";
 import {
   Linking,
@@ -13,9 +14,19 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DocumentPreviewModal } from "@/components/document-preview-modal";
+import { OfflineNotice } from "@/components/offline-notice";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { useIsOnline } from "@/hooks/use-network-status";
+import {
+  searchCachedAcademicInfo,
+  searchCachedDocuments,
+} from "@/lib/offline-db";
+import {
+  cacheDocumentFileForOffline,
+  getOfflineFileUri,
+} from "@/lib/offline-files";
 import { supabase } from "@/lib/supabase";
 import { showAlert, showComingSoon } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -102,6 +113,23 @@ function labelForCategory(category: AcademicInfoResult["category"]) {
   }
 }
 
+// searchCachedDocuments returns the full cached DocumentRow shape (shared
+// with the Documents screen); this screen only ever needs these four
+// fields, so narrow it down to DocumentResult at the call site.
+function searchCachedDocumentResults(
+  userId: string,
+  query: string,
+): DocumentResult[] {
+  return searchCachedDocuments(userId, query)
+    .filter((doc) => !!doc.file_path)
+    .map((doc) => ({
+      id: doc.id,
+      name: doc.name,
+      mime_type: doc.mime_type,
+      file_path: doc.file_path as string,
+    }));
+}
+
 function SearchResultSkeletonRow() {
   return (
     <View style={styles.resultRow}>
@@ -122,31 +150,71 @@ export default function SearchScreen() {
   const [infoResults, setInfoResults] = useState<AcademicInfoResult[]>([]);
   const [previewDoc, setPreviewDoc] = useState<DocumentResult | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [isShowingCache, setIsShowingCache] = useState(false);
+  const isOnline = useIsOnline();
 
-  // Same open logic as Documents' handleDocPress: images preview in-app,
-  // everything else (PDFs) hands off to the device's default viewer via a
-  // signed URL, since there's no dev client for a native PDF renderer yet.
-  const handleDocPress = useCallback(async (doc: DocumentResult) => {
-    if (!doc.file_path) return;
+  // Same open logic as Documents' handleDocPress: try a live signed URL
+  // first (skipped entirely when already offline), fall back to a copy
+  // downloaded during an earlier view otherwise. See documents.tsx for the
+  // full reasoning (Sharing instead of Linking for local file:// URIs, the
+  // background re-cache on a successful online view, etc.) - kept in sync
+  // with that version rather than duplicating the explanation here.
+  const handleDocPress = useCallback(
+    async (doc: DocumentResult) => {
+      if (!doc.file_path) return;
 
-    const { data, error } = await supabase.storage
-      .from("documents")
-      .createSignedUrl(doc.file_path, 60);
+      if (isOnline) {
+        const { data, error } = await supabase.storage
+          .from("documents")
+          .createSignedUrl(doc.file_path, 60);
 
-    if (error || !data?.signedUrl) {
-      showAlert("Couldn't open file", "Please try again.", undefined, {
-        tone: "danger",
+        if (!error && data?.signedUrl) {
+          if (doc.mime_type?.startsWith("image/")) {
+            setPreviewDoc(doc);
+            setPreviewImageUrl(data.signedUrl);
+          } else {
+            Linking.openURL(data.signedUrl);
+          }
+          const fileName = doc.file_path.split("/").pop() ?? doc.name;
+          cacheDocumentFileForOffline(doc.id, data.signedUrl, fileName);
+          return;
+        }
+      }
+
+      const localUri = getOfflineFileUri(doc.id);
+      if (!localUri) {
+        showAlert(
+          "Not available offline",
+          "Open this document once while online to make it available offline.",
+          undefined,
+          { tone: "danger" },
+        );
+        return;
+      }
+
+      if (doc.mime_type?.startsWith("image/")) {
+        setPreviewDoc(doc);
+        setPreviewImageUrl(localUri);
+        return;
+      }
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        showAlert(
+          "Can't open file",
+          "Sharing isn't available on this device.",
+          undefined,
+          { tone: "danger" },
+        );
+        return;
+      }
+      await Sharing.shareAsync(localUri, {
+        mimeType: doc.mime_type ?? undefined,
+        dialogTitle: doc.name,
       });
-      return;
-    }
-
-    if (doc.mime_type?.startsWith("image/")) {
-      setPreviewDoc(doc);
-      setPreviewImageUrl(data.signedUrl);
-    } else {
-      Linking.openURL(data.signedUrl);
-    }
-  }, []);
+    },
+    [isOnline],
+  );
   useEffect(() => {
     AsyncStorage.getItem(RECENT_SEARCHES_KEY).then((value) => {
       if (value) setRecentSearches(JSON.parse(value));
@@ -165,6 +233,22 @@ export default function SearchScreen() {
 
     setIsSearching(true);
     const timeout = setTimeout(async () => {
+      // Offline: skip the live query outright and read straight from the
+      // local cache (only ever has this user's own cached documents/info,
+      // populated from earlier visits to Documents / Academic Info).
+      if (!isOnline) {
+        setDocumentResults(
+          session ? searchCachedDocumentResults(session.user.id, trimmed) : [],
+        );
+        setInfoResults(
+          session ? searchCachedAcademicInfo(session.user.id, trimmed) : [],
+        );
+        setIsShowingCache(true);
+        setIsSearching(false);
+        setHasSearched(true);
+        return;
+      }
+
       const [documentsResult, infoResult] = await Promise.all([
         session
           ? supabase
@@ -174,7 +258,7 @@ export default function SearchScreen() {
               .ilike("name", `%${trimmed}%`)
               .order("created_at", { ascending: false })
               .limit(8)
-          : Promise.resolve({ data: [] as DocumentResult[] }),
+          : Promise.resolve({ data: [] as DocumentResult[], error: null }),
         supabase
           .from("academic_info")
           .select("id, title, category")
@@ -183,14 +267,31 @@ export default function SearchScreen() {
           .limit(8),
       ]);
 
-      setDocumentResults(documentsResult.data ?? []);
-      setInfoResults(infoResult.data ?? []);
+      // A live query can still fail while "online" (a flaky connection, a
+      // dropped request) - fall back to cache per-section rather than
+      // showing nothing, same as Documents/Academic Info do on load.
+      const usingCache = !!(documentsResult.error || infoResult.error);
+      setDocumentResults(
+        documentsResult.error
+          ? session
+            ? searchCachedDocumentResults(session.user.id, trimmed)
+            : []
+          : (documentsResult.data ?? []),
+      );
+      setInfoResults(
+        infoResult.error
+          ? session
+            ? searchCachedAcademicInfo(session.user.id, trimmed)
+            : []
+          : (infoResult.data ?? []),
+      );
+      setIsShowingCache(usingCache);
       setIsSearching(false);
       setHasSearched(true);
     }, SEARCH_DEBOUNCE_MS);
 
     return () => clearTimeout(timeout);
-  }, [query, session]);
+  }, [query, session, isOnline]);
 
   async function commitToRecentSearches(term: string) {
     const trimmed = term.trim();
@@ -309,6 +410,11 @@ export default function SearchScreen() {
 
             {!isSearching && hasSearched && (
               <>
+                {isShowingCache &&
+                  (documentResults.length > 0 || infoResults.length > 0) && (
+                    <OfflineNotice />
+                  )}
+
                 <ThemedText
                   style={[styles.sectionLabel, styles.firstSectionLabel]}
                 >

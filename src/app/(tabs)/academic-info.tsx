@@ -15,6 +15,7 @@ import {
   type AcademicInfoItem,
 } from "@/components/add-academic-info-modal";
 import { LoadErrorState } from "@/components/load-error-state";
+import { OfflineNotice } from "@/components/offline-notice";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import { ViewAcademicInfoModal } from "@/components/view-academic-info-modal";
@@ -23,6 +24,8 @@ import {
   type AcademicInfoCategory,
 } from "@/constants/academic-info-categories";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { useIsOnline } from "@/hooks/use-network-status";
+import { cacheAcademicInfo, getCachedAcademicInfo } from "@/lib/offline-db";
 import { supabase } from "@/lib/supabase";
 import { showComingSoon } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -83,6 +86,8 @@ export default function AcademicInfoScreen() {
   const [isViewModalVisible, setIsViewModalVisible] = useState(false);
   const [viewingItem, setViewingItem] = useState<AcademicInfoRow | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [isShowingCache, setIsShowingCache] = useState(false);
+  const isOnline = useIsOnline();
 
   const loadData = useCallback(
     async (isRefresh = false) => {
@@ -108,16 +113,29 @@ export default function AcademicInfoScreen() {
           "Failed to load academic info",
           profileResult.error ?? infoResult.error,
         );
-        setLoadError(true);
+        // Offline (or flaky signal) falls back to whatever was cached from
+        // the last successful load, rather than the generic error state -
+        // a real backend error (still online) keeps the old behavior.
+        const cached = getCachedAcademicInfo(session.user.id);
+        if (!isOnline && cached.length > 0) {
+          setLoadError(false);
+          setIsShowingCache(true);
+          setItems(cached);
+        } else {
+          setLoadError(true);
+          setIsShowingCache(false);
+        }
       } else {
         setLoadError(false);
+        setIsShowingCache(false);
         setProgram(profileResult.data?.program ?? null);
         setItems(infoResult.data ?? []);
+        cacheAcademicInfo(session.user.id, infoResult.data ?? []);
       }
 
       isRefresh ? setIsRefreshing(false) : setIsLoading(false);
     },
-    [session],
+    [session, isOnline],
   );
 
   useFocusEffect(
@@ -185,6 +203,8 @@ export default function AcademicInfoScreen() {
           />
         }
       >
+        {isShowingCache && items.length > 0 && <OfflineNotice />}
+
         {isLoading &&
           items.length === 0 &&
           Array.from({ length: 4 }).map((_, i) => (
@@ -194,7 +214,14 @@ export default function AcademicInfoScreen() {
         {!isLoading &&
           filteredItems.length === 0 &&
           (loadError ? (
-            <LoadErrorState onRetry={() => loadData()} />
+            <LoadErrorState
+              message={
+                isOnline
+                  ? undefined
+                  : "You're offline and don't have anything saved yet."
+              }
+              onRetry={() => loadData()}
+            />
           ) : (
             <ThemedText type="small" style={styles.emptyText}>
               {activeFilter === "all"

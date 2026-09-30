@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -17,7 +17,11 @@ import {
   type AcademicInfoCategory,
 } from "@/constants/academic-info-categories";
 import { Spacing } from "@/constants/theme";
-import { supabase } from "@/lib/supabase";
+import {
+  deleteAcademicInfoLocal,
+  saveAcademicInfoLocal,
+} from "@/lib/offline-db";
+import { requestSync } from "@/lib/sync";
 import { useToast } from "@/providers/toast-provider";
 
 const TITLE_MAX_LENGTH = 60;
@@ -57,12 +61,16 @@ export function AddAcademicInfoModal({
   const [content, setContent] = useState("");
   const [category, setCategory] = useState<AcademicInfoCategory>("curriculum");
   const [isPinned, setIsPinned] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  // Saving is a local write now (instant, no network wait), so there is no
+  // "Saving..." state to show - this only guards against a fast double-tap
+  // firing the handler twice before the modal has finished closing.
+  const hasSubmittedRef = useRef(false);
 
   // Re-sync local fields whenever a different item is opened for editing
   // (or the modal is opened fresh to add a new one).
   useEffect(() => {
     if (!visible) return;
+    hasSubmittedRef.current = false;
     setTitle(editingItem?.title ?? "");
     setContent(editingItem?.content ?? "");
     setCategory(editingItem?.category ?? "curriculum");
@@ -70,44 +78,39 @@ export function AddAcademicInfoModal({
   }, [visible, editingItem]);
 
   function handleClose() {
-    if (isSaving) return;
     onClose();
   }
 
-  async function handleSave() {
-    if (!title.trim() || !userId) return;
-    setIsSaving(true);
+  function handleSave() {
+    if (!title.trim() || !userId || hasSubmittedRef.current) return;
+    hasSubmittedRef.current = true;
 
-    const payload = {
-      title: title.trim(),
-      content: content.trim() || null,
-      category,
-      is_pinned: isPinned,
-    };
-
-    const { error } = editingItem
-      ? await supabase
-          .from("academic_info")
-          .update(payload)
-          .eq("id", editingItem.id)
-      : await supabase.from("academic_info").insert({
-          ...payload,
-          user_id: userId,
-        });
-
-    setIsSaving(false);
-
-    if (error) {
-      Alert.alert("Couldn't save", error.message);
+    // Written to the device first, so it works with or without a
+    // connection; requestSync pushes it to Supabase right away when online
+    // (and sync picks it up on reconnect otherwise).
+    try {
+      saveAcademicInfoLocal(userId, {
+        id: editingItem?.id,
+        title: title.trim(),
+        content: content.trim() || null,
+        category,
+        is_pinned: isPinned,
+      });
+    } catch (error) {
+      hasSubmittedRef.current = false;
+      console.error("Failed to save academic info locally", error);
+      Alert.alert("Couldn't save", "Something went wrong saving this entry.");
       return;
     }
+
     showToast(editingItem ? "Entry updated" : "Entry saved");
+    requestSync(userId);
     onSaved();
     onClose();
   }
 
   function handleDelete() {
-    if (!editingItem) return;
+    if (!editingItem || !userId) return;
     Alert.alert(
       "Delete entry",
       `Are you sure you want to delete "${editingItem.title}"? This can't be undone.`,
@@ -116,19 +119,24 @@ export function AddAcademicInfoModal({
         {
           text: "Delete",
           style: "destructive",
-          onPress: async () => {
-            setIsSaving(true);
-            const { error } = await supabase
-              .from("academic_info")
-              .delete()
-              .eq("id", editingItem.id);
-            setIsSaving(false);
+          onPress: () => {
+            if (hasSubmittedRef.current) return;
+            hasSubmittedRef.current = true;
 
-            if (error) {
-              Alert.alert("Couldn't delete entry", error.message);
+            try {
+              deleteAcademicInfoLocal(userId, editingItem.id);
+            } catch (error) {
+              hasSubmittedRef.current = false;
+              console.error("Failed to delete academic info locally", error);
+              Alert.alert(
+                "Couldn't delete entry",
+                "Something went wrong deleting this entry.",
+              );
               return;
             }
+
             showToast("Entry deleted");
+            requestSync(userId);
             onSaved();
             onClose();
           },
@@ -137,7 +145,7 @@ export function AddAcademicInfoModal({
     );
   }
 
-  const canSubmit = title.trim().length > 0 && !isSaving;
+  const canSubmit = title.trim().length > 0;
 
   return (
     <BottomSheet visible={visible} onClose={handleClose}>
@@ -244,16 +252,12 @@ export function AddAcademicInfoModal({
           style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
         >
           <ThemedText type="smallBold" style={styles.saveButtonText}>
-            {isSaving ? "Saving..." : "Save"}
+            Save
           </ThemedText>
         </Pressable>
 
         {editingItem && (
-          <Pressable
-            onPress={handleDelete}
-            disabled={isSaving}
-            style={styles.deleteButton}
-          >
+          <Pressable onPress={handleDelete} style={styles.deleteButton}>
             <ThemedText type="smallBold" style={styles.deleteButtonText}>
               Delete Entry
             </ThemedText>

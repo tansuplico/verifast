@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -25,12 +25,16 @@ import {
 } from "@/constants/academic-info-categories";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { useIsOnline } from "@/hooks/use-network-status";
-import { cacheAcademicInfo, getCachedAcademicInfo } from "@/lib/offline-db";
+import { getCachedAcademicInfo, type SyncStatus } from "@/lib/offline-db";
 import { supabase } from "@/lib/supabase";
+import { subscribeToSync, syncAcademicInfo } from "@/lib/sync";
 import { showComingSoon } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
-type AcademicInfoRow = AcademicInfoItem & { posted_at: string };
+type AcademicInfoRow = AcademicInfoItem & {
+  posted_at: string;
+  sync_status: SyncStatus;
+};
 
 type FilterKey = "all" | AcademicInfoCategory;
 
@@ -86,71 +90,51 @@ export default function AcademicInfoScreen() {
   const [isViewModalVisible, setIsViewModalVisible] = useState(false);
   const [viewingItem, setViewingItem] = useState<AcademicInfoRow | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [isShowingCache, setIsShowingCache] = useState(false);
   const isOnline = useIsOnline();
+
+  // Local-first: the list always comes from the on-device database, so it
+  // looks and behaves the same with or without a connection. Syncing with
+  // Supabase happens around it (see sync.ts), never in front of it.
+  const reloadFromLocal = useCallback(() => {
+    if (!session) return;
+    setItems(getCachedAcademicInfo(session.user.id));
+  }, [session]);
 
   const loadData = useCallback(
     async (isRefresh = false) => {
       if (!session) return;
-      isRefresh ? setIsRefreshing(true) : setIsLoading(true);
+      const userId = session.user.id;
 
-      // Known offline: skip the live fetch entirely rather than let it run,
-      // time out/fail with a host-resolution error, and log that as if it
-      // were a real problem. Same pattern as Documents and Search.
+      // Show what's on the device right away. Skeletons only appear when
+      // there is nothing local yet (first ever load while online).
+      const local = getCachedAcademicInfo(userId);
+      setItems(local);
+      if (local.length > 0) setIsLoading(false);
+      if (isRefresh) setIsRefreshing(true);
+
       if (!isOnline) {
-        const cached = getCachedAcademicInfo(session.user.id);
-        if (cached.length > 0) {
-          setLoadError(false);
-          setIsShowingCache(true);
-          setItems(cached);
-        } else {
-          setLoadError(true);
-          setIsShowingCache(false);
-        }
-        isRefresh ? setIsRefreshing(false) : setIsLoading(false);
+        setLoadError(false);
+        setIsLoading(false);
+        setIsRefreshing(false);
         return;
       }
 
-      const [profileResult, infoResult] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("program")
-          .eq("id", session.user.id)
-          .single(),
-        supabase
-          .from("academic_info")
-          .select("id, category, title, content, is_pinned, posted_at")
-          .eq("user_id", session.user.id)
-          .order("is_pinned", { ascending: false })
-          .order("posted_at", { ascending: false }),
+      const [syncResult, profileResult] = await Promise.all([
+        syncAcademicInfo(userId),
+        supabase.from("profiles").select("program").eq("id", userId).single(),
       ]);
 
-      if (profileResult.error || infoResult.error) {
-        console.error(
-          "Failed to load academic info",
-          profileResult.error ?? infoResult.error,
-        );
-        // Offline (or flaky signal) falls back to whatever was cached from
-        // the last successful load, rather than the generic error state -
-        // a real backend error (still online) keeps the old behavior.
-        const cached = getCachedAcademicInfo(session.user.id);
-        if (!isOnline && cached.length > 0) {
-          setLoadError(false);
-          setIsShowingCache(true);
-          setItems(cached);
-        } else {
-          setLoadError(true);
-          setIsShowingCache(false);
-        }
-      } else {
-        setLoadError(false);
-        setIsShowingCache(false);
+      if (!profileResult.error) {
         setProgram(profileResult.data?.program ?? null);
-        setItems(infoResult.data ?? []);
-        cacheAcademicInfo(session.user.id, infoResult.data ?? []);
       }
 
-      isRefresh ? setIsRefreshing(false) : setIsLoading(false);
+      const afterSync = getCachedAcademicInfo(userId);
+      setItems(afterSync);
+      // Only a failed sync with nothing on the device is worth an error
+      // screen; otherwise the local list is still perfectly usable.
+      setLoadError(!syncResult.ok && afterSync.length === 0);
+      setIsLoading(false);
+      setIsRefreshing(false);
     },
     [session, isOnline],
   );
@@ -160,6 +144,10 @@ export default function AcademicInfoScreen() {
       loadData();
     }, [loadData]),
   );
+
+  // A background sync (reconnect, app foreground, a save's own push) can
+  // clear "waiting to sync" badges or pull in rows from another device.
+  useEffect(() => subscribeToSync(reloadFromLocal), [reloadFromLocal]);
 
   const filteredItems = useMemo(() => {
     if (activeFilter === "all") return items;
@@ -220,7 +208,9 @@ export default function AcademicInfoScreen() {
           />
         }
       >
-        {isShowingCache && items.length > 0 && <OfflineNotice />}
+        {!isOnline && (
+          <OfflineNotice message="You're offline - changes will sync when you're back online" />
+        )}
 
         {isLoading &&
           items.length === 0 &&
@@ -231,14 +221,7 @@ export default function AcademicInfoScreen() {
         {!isLoading &&
           filteredItems.length === 0 &&
           (loadError ? (
-            <LoadErrorState
-              message={
-                isOnline
-                  ? undefined
-                  : "You're offline and don't have anything saved yet."
-              }
-              onRetry={() => loadData()}
-            />
+            <LoadErrorState onRetry={() => loadData()} />
           ) : (
             <ThemedText type="small" style={styles.emptyText}>
               {activeFilter === "all"
@@ -313,6 +296,18 @@ export default function AcademicInfoScreen() {
                     <ThemedText type="small" style={styles.cardDate}>
                       {formatPostedDate(item.posted_at)}
                     </ThemedText>
+                    {item.sync_status !== "synced" && (
+                      <View style={styles.syncPending}>
+                        <Ionicons
+                          name="cloud-upload-outline"
+                          size={12}
+                          color="#a5a9b1"
+                        />
+                        <ThemedText type="small" style={styles.cardDate}>
+                          Waiting to sync
+                        </ThemedText>
+                      </View>
+                    )}
                   </View>
                 </View>
               </View>
@@ -336,7 +331,7 @@ export default function AcademicInfoScreen() {
         onClose={() => setIsModalVisible(false)}
         userId={session?.user.id}
         editingItem={editingItem}
-        onSaved={() => loadData()}
+        onSaved={reloadFromLocal}
       />
 
       <ViewAcademicInfoModal
@@ -448,4 +443,10 @@ const styles = StyleSheet.create({
     marginTop: Spacing.one,
   },
   cardDate: { color: "#a5a9b1" },
+  syncPending: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginLeft: Spacing.two,
+  },
 });

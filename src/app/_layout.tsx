@@ -8,6 +8,7 @@ import { useColorScheme } from "react-native";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { CrashBoundary } from "@/components/crash-boundary";
+import { useOfflineSync } from "@/hooks/use-offline-sync";
 import { reconcileReminderNotifications } from "@/hooks/use-push-notifications-toggle";
 import { configureNotificationHandler } from "@/lib/notifications";
 import { AlertProvider } from "@/providers/alert-provider";
@@ -64,6 +65,10 @@ function RootNavigator() {
     if (!isFullyAuthenticated || !session) return;
     reconcileReminderNotifications(session.user.id);
   }, [isFullyAuthenticated, session]);
+
+  // Pushes changes made offline once the app is fully signed in, and keeps
+  // pushing/pulling on reconnect and app foreground. See use-offline-sync.
+  useOfflineSync(isFullyAuthenticated && session ? session.user.id : null);
 
   if (isLoading) {
     return null;

@@ -9,12 +9,16 @@ import { Spacing } from "@/constants/theme";
 // Deliberately low-key - same muted color/icon convention as
 // LoadErrorState - since this isn't an error, just a "heads up, this might
 // be a little stale" note.
-export function OfflineNotice() {
+export function OfflineNotice({
+  message = "You're offline - showing saved data",
+}: {
+  message?: string;
+}) {
   return (
     <View style={styles.container}>
       <Ionicons name="cloud-offline-outline" size={14} color="#8b8f99" />
       <ThemedText type="small" style={styles.text}>
-        You&apos;re offline - showing saved data
+        {message}
       </ThemedText>
     </View>
   );

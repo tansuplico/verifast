@@ -156,6 +156,25 @@ export default function DocumentsScreen() {
       if (!session) return;
       isRefresh ? setIsRefreshing(true) : setIsLoading(true);
 
+      // Known offline: skip the live fetch entirely rather than let it run,
+      // time out/fail with a host-resolution error, and log that as if it
+      // were a real problem. Same pattern as Search's debounced query.
+      if (!isOnline) {
+        const cachedFolders = getCachedFolders(session.user.id);
+        const cachedDocuments = getCachedDocuments(session.user.id);
+        if (cachedDocuments.length > 0) {
+          setLoadError(false);
+          setIsShowingCache(true);
+          setFolders(cachedFolders as FolderRow[]);
+          setDocuments(cachedDocuments);
+        } else {
+          setLoadError(true);
+          setIsShowingCache(false);
+        }
+        isRefresh ? setIsRefreshing(false) : setIsLoading(false);
+        return;
+      }
+
       const [foldersResult, documentsResult, subscriptionResult] =
         await Promise.all([
           supabase

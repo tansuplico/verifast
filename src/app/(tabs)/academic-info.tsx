@@ -94,6 +94,23 @@ export default function AcademicInfoScreen() {
       if (!session) return;
       isRefresh ? setIsRefreshing(true) : setIsLoading(true);
 
+      // Known offline: skip the live fetch entirely rather than let it run,
+      // time out/fail with a host-resolution error, and log that as if it
+      // were a real problem. Same pattern as Documents and Search.
+      if (!isOnline) {
+        const cached = getCachedAcademicInfo(session.user.id);
+        if (cached.length > 0) {
+          setLoadError(false);
+          setIsShowingCache(true);
+          setItems(cached);
+        } else {
+          setLoadError(true);
+          setIsShowingCache(false);
+        }
+        isRefresh ? setIsRefreshing(false) : setIsLoading(false);
+        return;
+      }
+
       const [profileResult, infoResult] = await Promise.all([
         supabase
           .from("profiles")

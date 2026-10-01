@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AddRequestModal } from "@/components/add-request-modal";
 import { LoadErrorState } from "@/components/load-error-state";
+import { OfflineNotice } from "@/components/offline-notice";
 import { RequestActionsMenu } from "@/components/request-actions-menu";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
@@ -23,7 +24,14 @@ import {
   STATUS_STYLE,
 } from "@/constants/request-status";
 import { BottomTabInset, Spacing } from "@/constants/theme";
-import { supabase } from "@/lib/supabase";
+import { useIsOnline } from "@/hooks/use-network-status";
+import {
+  advanceRequestLocal,
+  deleteRequestLocal,
+  getCachedRequests,
+  type SyncStatus,
+} from "@/lib/offline-db";
+import { requestSync, subscribeToSync, syncRequests } from "@/lib/sync";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
@@ -34,6 +42,7 @@ type RequestRow = {
   status: RequestStatus;
   requested_date: string;
   released_date: string | null;
+  sync_status: SyncStatus;
 };
 
 function formatDate(dateString: string) {
@@ -70,36 +79,50 @@ function RequestSkeletonRow({ isLast }: { isLast: boolean }) {
 export default function RequestedDocsScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  const isOnline = useIsOnline();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [actionsRequest, setActionsRequest] = useState<RequestRow | null>(null);
   const [loadError, setLoadError] = useState(false);
+  // Local-first: the list always comes from the on-device database, so it
+  // looks and behaves the same with or without a connection. Syncing with
+  // Supabase happens around it (see sync.ts), never in front of it.
+  const reloadFromLocal = useCallback(() => {
+    if (!session) return;
+    setRequests(getCachedRequests(session.user.id));
+  }, [session]);
+
   const loadRequests = useCallback(
     async (isRefresh = false) => {
       if (!session) return;
-      isRefresh ? setIsRefreshing(true) : setIsLoading(true);
+      const userId = session.user.id;
 
-      const { data, error } = await supabase
-        .from("document_requests")
-        .select(
-          "id, document_type, office, status, requested_date, released_date",
-        )
-        .eq("user_id", session.user.id)
-        .order("created_at", { ascending: false });
+      // Show what's on the device right away. Skeletons only appear when
+      // there is nothing local yet (first ever load while online).
+      const local = getCachedRequests(userId);
+      setRequests(local);
+      if (local.length > 0) setIsLoading(false);
+      if (isRefresh) setIsRefreshing(true);
 
-      if (error) {
-        console.error("Failed to load document requests", error);
-        setLoadError(true);
-      } else {
+      if (!isOnline) {
         setLoadError(false);
-        setRequests(data ?? []);
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
       }
 
-      isRefresh ? setIsRefreshing(false) : setIsLoading(false);
+      const syncResult = await syncRequests(userId);
+      const afterSync = getCachedRequests(userId);
+      setRequests(afterSync);
+      // Only a failed sync with nothing on the device is worth an error
+      // screen; otherwise the local list is still perfectly usable.
+      setLoadError(!syncResult.ok && afterSync.length === 0);
+      setIsLoading(false);
+      setIsRefreshing(false);
     },
-    [session],
+    [session, isOnline],
   );
 
   useFocusEffect(
@@ -108,10 +131,14 @@ export default function RequestedDocsScreen() {
     }, [loadRequests]),
   );
 
+  // A background sync (reconnect, app foreground, a change's own push) can
+  // clear "waiting to sync" badges or pull in requests from another device.
+  useEffect(() => subscribeToSync(reloadFromLocal), [reloadFromLocal]);
+
   const handleAdvance = useCallback(
     (request: RequestRow) => {
       const nextStatus = NEXT_STATUS[request.status];
-      if (!nextStatus) return;
+      if (!nextStatus || !session) return;
 
       showAlert(
         `Mark as ${STATUS_STYLE[nextStatus].label}?`,
@@ -120,44 +147,33 @@ export default function RequestedDocsScreen() {
           { text: "Cancel", style: "cancel" },
           {
             text: "Confirm",
-            onPress: async () => {
-              const updates: Partial<RequestRow> = { status: nextStatus };
-              if (nextStatus === "released") {
-                updates.released_date = new Date().toISOString().slice(0, 10);
-              }
-
-              const { data, error } = await supabase
-                .from("document_requests")
-                .update(updates)
-                .eq("id", request.id)
-                .select();
-
-              if (error) {
-                showAlert("Couldn't update request", error.message, undefined, {
-                  tone: "danger",
-                });
-                return;
-              }
-              if (!data || data.length === 0) {
+            onPress: () => {
+              try {
+                advanceRequestLocal(session.user.id, request.id, nextStatus);
+              } catch (error) {
+                console.error("Failed to update request locally", error);
                 showAlert(
                   "Couldn't update request",
-                  "The request wasn't updated — this usually means the update was blocked by a database permission (RLS) rule.",
+                  "Something went wrong updating this request.",
                   undefined,
                   { tone: "danger" },
                 );
                 return;
               }
-              loadRequests();
+              requestSync(session.user.id);
+              reloadFromLocal();
             },
           },
         ],
       );
     },
-    [loadRequests],
+    [session, reloadFromLocal],
   );
 
   const handleDelete = useCallback(
     (request: RequestRow) => {
+      if (!session) return;
+
       showAlert(
         "Delete request",
         `Remove the tracked request for "${request.document_type}"?`,
@@ -166,35 +182,28 @@ export default function RequestedDocsScreen() {
           {
             text: "Delete",
             style: "destructive",
-            onPress: async () => {
-              const { data, error } = await supabase
-                .from("document_requests")
-                .delete()
-                .eq("id", request.id)
-                .select();
-              if (error) {
-                showAlert("Couldn't delete request", error.message, undefined, {
-                  tone: "danger",
-                });
-                return;
-              }
-              if (!data || data.length === 0) {
+            onPress: () => {
+              try {
+                deleteRequestLocal(session.user.id, request.id);
+              } catch (error) {
+                console.error("Failed to delete request locally", error);
                 showAlert(
                   "Couldn't delete request",
-                  "The request wasn't removed — this usually means the delete was blocked by a database permission (RLS) rule.",
+                  "Something went wrong deleting this request.",
                   undefined,
                   { tone: "danger" },
                 );
                 return;
               }
-              loadRequests();
+              requestSync(session.user.id);
+              reloadFromLocal();
             },
           },
         ],
         { icon: "trash-outline" },
       );
     },
-    [loadRequests],
+    [session, reloadFromLocal],
   );
 
   const readyCount = requests.filter((r) => r.status === "ready").length;
@@ -231,6 +240,10 @@ export default function RequestedDocsScreen() {
           />
         }
       >
+        {!isOnline && (
+          <OfflineNotice message="You're offline - changes will sync when you're back online" />
+        )}
+
         {readyCount > 0 && (
           <View style={styles.readyBanner}>
             <Ionicons name="cube-outline" size={16} color="#059669" />
@@ -306,6 +319,18 @@ export default function RequestedDocsScreen() {
                         ? formatDate(request.released_date)
                         : formatDate(request.requested_date)}
                     </ThemedText>
+                    {request.sync_status !== "synced" && (
+                      <View style={styles.syncPending}>
+                        <Ionicons
+                          name="cloud-upload-outline"
+                          size={12}
+                          color="#8b8f99"
+                        />
+                        <ThemedText type="small" style={styles.rowSubtext}>
+                          Waiting to sync
+                        </ThemedText>
+                      </View>
+                    )}
                   </View>
 
                   <View
@@ -349,7 +374,7 @@ export default function RequestedDocsScreen() {
         visible={isAddModalVisible}
         onClose={() => setIsAddModalVisible(false)}
         userId={session?.user.id}
-        onCreated={() => loadRequests()}
+        onCreated={reloadFromLocal}
       />
 
       <RequestActionsMenu
@@ -431,6 +456,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   rowTextGroup: { flex: 1, gap: 2 },
+  syncPending: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   rowTitle: { color: "#1a1c20" },
   rowSubtext: { color: "#8b8f99" },
   statusPill: {

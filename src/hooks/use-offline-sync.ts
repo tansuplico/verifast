@@ -2,7 +2,7 @@ import NetInfo from "@react-native-community/netinfo";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 
-import { syncAcademicInfo } from "@/lib/sync";
+import { syncAll } from "@/lib/sync";
 
 // Keeps the local database and Supabase in step while the user is signed
 // in: one sync right away, then another whenever the connection comes back
@@ -13,7 +13,7 @@ export function useOfflineSync(userId: string | null) {
   useEffect(() => {
     if (!userId) return;
 
-    syncAcademicInfo(userId);
+    syncAll(userId);
 
     // NetInfo calls back immediately on subscribe and on every change
     // (wifi <-> cellular included), so only react to offline -> online.
@@ -22,7 +22,7 @@ export function useOfflineSync(userId: string | null) {
       const isOnline =
         state.isConnected === true && state.isInternetReachable !== false;
       if (isOnline && wasOnline === false) {
-        syncAcademicInfo(userId);
+        syncAll(userId);
       }
       wasOnline = isOnline;
     });
@@ -30,7 +30,7 @@ export function useOfflineSync(userId: string | null) {
     const appStateSubscription = AppState.addEventListener(
       "change",
       (nextState) => {
-        if (nextState === "active") syncAcademicInfo(userId);
+        if (nextState === "active") syncAll(userId);
       },
     );
 

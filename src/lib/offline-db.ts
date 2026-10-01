@@ -1,6 +1,7 @@
 import { openDatabaseSync, type SQLiteDatabase } from "expo-sqlite";
 
 import type { AcademicInfoCategory } from "@/constants/academic-info-categories";
+import type { RequestStatus } from "@/constants/request-status";
 import { uuidv4 } from "@/lib/uuid";
 import type { DocumentRow } from "@/types/documents";
 
@@ -53,6 +54,19 @@ function getDb(): SQLiteDatabase {
         local_rev INTEGER NOT NULL DEFAULT 0
       );
 
+      CREATE TABLE IF NOT EXISTS cached_document_requests (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        document_type TEXT NOT NULL,
+        office TEXT,
+        status TEXT NOT NULL,
+        requested_date TEXT NOT NULL,
+        released_date TEXT,
+        created_at TEXT NOT NULL,
+        sync_status TEXT NOT NULL DEFAULT 'synced',
+        local_rev INTEGER NOT NULL DEFAULT 0
+      );
+
       CREATE TABLE IF NOT EXISTS downloaded_files (
         document_id TEXT PRIMARY KEY NOT NULL,
         local_uri TEXT NOT NULL,
@@ -65,6 +79,8 @@ function getDb(): SQLiteDatabase {
         ON cached_folders (user_id);
       CREATE INDEX IF NOT EXISTS idx_cached_academic_info_user
         ON cached_academic_info (user_id);
+      CREATE INDEX IF NOT EXISTS idx_cached_document_requests_user
+        ON cached_document_requests (user_id);
     `);
 
     // Devices that installed the earlier read-only cache already have a
@@ -387,6 +403,197 @@ export function markAcademicInfoSynced(id: string, localRev: number) {
 export function removeDeletedAcademicInfo(id: string, localRev: number) {
   getDb().runSync(
     "DELETE FROM cached_academic_info WHERE id = ? AND local_rev = ? AND sync_status = 'pending_delete'",
+    [id, localRev],
+  );
+}
+
+// --- Document requests (local-first: Requested Docs screen, sync.ts) ---
+//
+// Same model as academic info above: this table is what the screen shows,
+// sync_status tracks what still has to be pushed, and local_rev guards
+// against marking a row synced when it was edited again mid-push.
+
+export type ServerRequestRow = {
+  id: string;
+  document_type: string;
+  office: string | null;
+  status: RequestStatus;
+  requested_date: string;
+  released_date: string | null;
+  created_at: string;
+};
+
+export type CachedRequestRow = ServerRequestRow & {
+  sync_status: SyncStatus;
+};
+
+export type PendingRequestRow = CachedRequestRow & { local_rev: number };
+
+const REQUEST_COLUMNS =
+  "id, document_type, office, status, requested_date, released_date, created_at, sync_status, local_rev";
+
+// Today's date as YYYY-MM-DD in the phone's own timezone. The server's
+// CURRENT_DATE default is in UTC, which in the Philippines is still
+// "yesterday" until 8 AM - and an offline request has to carry its date
+// with it anyway.
+function todayLocalDate() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+export function getCachedRequests(userId: string): CachedRequestRow[] {
+  return getDb().getAllSync<PendingRequestRow>(
+    `SELECT ${REQUEST_COLUMNS} FROM cached_document_requests
+     WHERE user_id = ? AND sync_status != 'pending_delete'
+     ORDER BY created_at DESC`,
+    [userId],
+  );
+}
+
+export function mergeServerRequests(
+  userId: string,
+  serverRows: ServerRequestRow[],
+) {
+  const database = getDb();
+  const serverIds = new Set(serverRows.map((row) => row.id));
+
+  database.withTransactionSync(() => {
+    const syncedLocal = database.getAllSync<{ id: string }>(
+      "SELECT id FROM cached_document_requests WHERE user_id = ? AND sync_status = 'synced'",
+      [userId],
+    );
+    for (const { id } of syncedLocal) {
+      if (!serverIds.has(id)) {
+        database.runSync("DELETE FROM cached_document_requests WHERE id = ?", [
+          id,
+        ]);
+      }
+    }
+
+    for (const row of serverRows) {
+      database.runSync(
+        `INSERT INTO cached_document_requests
+          (id, user_id, document_type, office, status, requested_date, released_date, created_at, sync_status, local_rev)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', 0)
+         ON CONFLICT(id) DO UPDATE SET
+           document_type = excluded.document_type,
+           office = excluded.office,
+           status = excluded.status,
+           requested_date = excluded.requested_date,
+           released_date = excluded.released_date,
+           created_at = excluded.created_at
+         WHERE cached_document_requests.sync_status = 'synced'`,
+        [
+          row.id,
+          userId,
+          row.document_type,
+          row.office,
+          row.status,
+          row.requested_date,
+          row.released_date,
+          row.created_at,
+        ],
+      );
+    }
+  });
+}
+
+export function createRequestLocal(
+  userId: string,
+  input: { document_type: string; office: string | null },
+): string {
+  const id = uuidv4();
+  getDb().runSync(
+    `INSERT INTO cached_document_requests
+      (id, user_id, document_type, office, status, requested_date, released_date, created_at, sync_status, local_rev)
+     VALUES (?, ?, ?, ?, 'requested', ?, NULL, ?, 'pending_create', 1)`,
+    [
+      id,
+      userId,
+      input.document_type,
+      input.office,
+      todayLocalDate(),
+      new Date().toISOString(),
+    ],
+  );
+  return id;
+}
+
+// Moves a request to its next status. Reaching "released" also stamps the
+// released date, exactly like the online-only version did.
+export function advanceRequestLocal(
+  userId: string,
+  id: string,
+  nextStatus: RequestStatus,
+) {
+  const database = getDb();
+  const existing = database.getFirstSync<{ sync_status: SyncStatus }>(
+    "SELECT sync_status FROM cached_document_requests WHERE id = ? AND user_id = ?",
+    [id, userId],
+  );
+  if (!existing) return;
+
+  const nextSyncStatus: SyncStatus =
+    existing.sync_status === "pending_create"
+      ? "pending_create"
+      : "pending_update";
+
+  database.runSync(
+    `UPDATE cached_document_requests
+     SET status = ?,
+         released_date = CASE WHEN ? = 'released' THEN ? ELSE released_date END,
+         sync_status = ?, local_rev = local_rev + 1
+     WHERE id = ? AND user_id = ?`,
+    [nextStatus, nextStatus, todayLocalDate(), nextSyncStatus, id, userId],
+  );
+}
+
+export function deleteRequestLocal(userId: string, id: string) {
+  const database = getDb();
+  const existing = database.getFirstSync<{ sync_status: SyncStatus }>(
+    "SELECT sync_status FROM cached_document_requests WHERE id = ? AND user_id = ?",
+    [id, userId],
+  );
+  if (!existing) return;
+
+  if (existing.sync_status === "pending_create") {
+    database.runSync("DELETE FROM cached_document_requests WHERE id = ?", [id]);
+    return;
+  }
+
+  database.runSync(
+    `UPDATE cached_document_requests
+     SET sync_status = 'pending_delete', local_rev = local_rev + 1
+     WHERE id = ?`,
+    [id],
+  );
+}
+
+export function getPendingRequests(userId: string): PendingRequestRow[] {
+  return getDb().getAllSync<PendingRequestRow>(
+    `SELECT ${REQUEST_COLUMNS} FROM cached_document_requests
+     WHERE user_id = ? AND sync_status != 'synced'
+     ORDER BY CASE sync_status
+       WHEN 'pending_create' THEN 0
+       WHEN 'pending_update' THEN 1
+       ELSE 2
+     END, created_at ASC`,
+    [userId],
+  );
+}
+
+export function markRequestSynced(id: string, localRev: number) {
+  getDb().runSync(
+    "UPDATE cached_document_requests SET sync_status = 'synced' WHERE id = ? AND local_rev = ?",
+    [id, localRev],
+  );
+}
+
+export function removeDeletedRequest(id: string, localRev: number) {
+  getDb().runSync(
+    "DELETE FROM cached_document_requests WHERE id = ? AND local_rev = ? AND sync_status = 'pending_delete'",
     [id, localRev],
   );
 }

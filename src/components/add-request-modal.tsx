@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -12,7 +12,8 @@ import {
 import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
-import { supabase } from "@/lib/supabase";
+import { createRequestLocal } from "@/lib/offline-db";
+import { requestSync } from "@/lib/sync";
 import { showAlert } from "@/providers/alert-provider";
 
 const DOCUMENT_TYPE_MAX_LENGTH = 60;
@@ -33,45 +34,53 @@ export function AddRequestModal({
 }: AddRequestModalProps) {
   const [documentType, setDocumentType] = useState("");
   const [office, setOffice] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
+  // Saving is a local write now (instant, works offline), so there is no
+  // "Saving..." state - this only stops a fast double-tap from logging the
+  // same request twice before the sheet has closed.
+  const hasSubmittedRef = useRef(false);
 
   function reset() {
     setDocumentType("");
     setOffice("");
-    setIsSaving(false);
+    hasSubmittedRef.current = false;
   }
 
   function handleClose() {
-    if (isSaving) return;
     reset();
     onClose();
   }
 
-  async function handleSave() {
-    if (!documentType.trim() || !userId) return;
-    setIsSaving(true);
+  function handleSave() {
+    if (!documentType.trim() || !userId || hasSubmittedRef.current) return;
+    hasSubmittedRef.current = true;
 
-    const { error } = await supabase.from("document_requests").insert({
-      user_id: userId,
-      document_type: documentType.trim(),
-      office: office.trim() || null,
-    });
-
-    setIsSaving(false);
-
-    if (error) {
-      showAlert("Couldn't save request", error.message, undefined, {
-        tone: "danger",
+    // Saved on the device first so it works with or without a connection;
+    // requestSync pushes it to Supabase right away when online, and sync
+    // picks it up on reconnect otherwise.
+    try {
+      createRequestLocal(userId, {
+        document_type: documentType.trim(),
+        office: office.trim() || null,
       });
+    } catch (error) {
+      hasSubmittedRef.current = false;
+      console.error("Failed to save document request locally", error);
+      showAlert(
+        "Couldn't save request",
+        "Something went wrong saving this request.",
+        undefined,
+        { tone: "danger" },
+      );
       return;
     }
 
+    requestSync(userId);
     reset();
     onCreated();
     onClose();
   }
 
-  const canSubmit = documentType.trim().length > 0 && !isSaving;
+  const canSubmit = documentType.trim().length > 0;
 
   return (
     <BottomSheet visible={visible} onClose={handleClose}>
@@ -125,7 +134,7 @@ export function AddRequestModal({
           style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
         >
           <ThemedText type="smallBold" style={styles.saveButtonText}>
-            {isSaving ? "Saving..." : "Save Request"}
+            Save Request
           </ThemedText>
         </Pressable>
       </KeyboardAvoidingView>

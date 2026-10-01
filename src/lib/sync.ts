@@ -1,14 +1,26 @@
 import { checkIsOnline } from "@/hooks/use-network-status";
+import { getDeviceId } from "@/lib/device-id";
 import {
+  discardReminder,
   getPendingAcademicInfo,
+  getPendingCalendarSyncs,
+  getPendingReminders,
   getPendingRequests,
   markAcademicInfoSynced,
+  markCalendarSyncSynced,
+  markReminderSynced,
   markRequestSynced,
   mergeServerAcademicInfo,
+  mergeServerCalendarSyncs,
+  mergeServerReminders,
   mergeServerRequests,
   removeDeletedAcademicInfo,
+  removeDeletedCalendarSync,
+  removeDeletedReminder,
   removeDeletedRequest,
   type PendingAcademicInfoRow,
+  type PendingCalendarSyncRow,
+  type PendingReminderRow,
   type PendingRequestRow,
 } from "@/lib/offline-db";
 import { supabase } from "@/lib/supabase";
@@ -25,7 +37,11 @@ import { supabase } from "@/lib/supabase";
 // duplicating it.
 
 export type SyncResult = { ok: boolean };
-type FullSyncResult = { academicInfoOk: boolean; requestsOk: boolean };
+type FullSyncResult = {
+  academicInfoOk: boolean;
+  requestsOk: boolean;
+  remindersOk: boolean;
+};
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -169,16 +185,155 @@ async function syncRequestsTable(userId: string): Promise<boolean> {
   return ok;
 }
 
+// --- Reminders (and this device's calendar event per reminder) ---
+
+async function pushReminderRow(userId: string, row: PendingReminderRow) {
+  if (row.sync_status === "pending_delete") {
+    // The server also deletes the reminder's calendar sync rows (cascade).
+    const { error } = await supabase
+      .from("reminders")
+      .delete()
+      .eq("id", row.id);
+    if (error) return error;
+    removeDeletedReminder(row.id, row.local_rev);
+    return null;
+  }
+
+  if (row.sync_status === "pending_create") {
+    // `type` is a required legacy column with no default; the app has
+    // always written "submission" for new reminders.
+    const { error } = await supabase.from("reminders").upsert(
+      {
+        id: row.id,
+        user_id: userId,
+        title: row.title,
+        category: row.category,
+        type: "submission",
+        due_date: row.due_date,
+      },
+      { onConflict: "id" },
+    );
+    if (error) return error;
+    markReminderSynced(row.id, row.local_rev);
+    return null;
+  }
+
+  // An edit goes through update, not upsert: an upsert would also write
+  // `type` and overwrite whatever value the row already has.
+  const { data, error } = await supabase
+    .from("reminders")
+    .update({
+      title: row.title,
+      category: row.category,
+      due_date: row.due_date,
+    })
+    .eq("id", row.id)
+    .select("id");
+  if (error) return error;
+
+  if (!data || data.length === 0) {
+    // Nothing matched: the reminder was deleted on another device, so
+    // drop the local copy instead of retrying forever.
+    discardReminder(row.id, row.local_rev);
+    return null;
+  }
+  markReminderSynced(row.id, row.local_rev);
+  return null;
+}
+
+async function pushCalendarSyncRow(
+  deviceId: string,
+  row: PendingCalendarSyncRow,
+) {
+  if (row.sync_status === "pending_delete") {
+    const { error } = await supabase
+      .from("reminder_calendar_syncs")
+      .delete()
+      .eq("reminder_id", row.reminder_id)
+      .eq("device_id", deviceId);
+    if (error) return error;
+    removeDeletedCalendarSync(row.reminder_id, deviceId, row.local_rev);
+    return null;
+  }
+
+  const { error } = await supabase.from("reminder_calendar_syncs").upsert(
+    {
+      reminder_id: row.reminder_id,
+      device_id: deviceId,
+      calendar_event_id: row.calendar_event_id,
+    },
+    { onConflict: "reminder_id,device_id" },
+  );
+  if (error) return error;
+  markCalendarSyncSynced(row.reminder_id, deviceId, row.local_rev);
+  return null;
+}
+
+async function syncRemindersTable(userId: string): Promise<boolean> {
+  let ok = true;
+
+  // Reminders go first: a calendar sync row can't be inserted on the
+  // server until the reminder it points at exists there.
+  for (const row of getPendingReminders(userId)) {
+    const error = await pushReminderRow(userId, row);
+    if (!error) continue;
+
+    ok = false;
+    console.warn("[sync] failed to push reminder", row.id, error);
+    if (!(await checkIsOnline())) return false;
+  }
+
+  const { data, error } = await supabase
+    .from("reminders")
+    .select("id, title, due_date, category")
+    .eq("user_id", userId)
+    .eq("status", "pending");
+
+  if (error) {
+    console.warn("[sync] failed to pull reminders", error);
+    return false;
+  }
+  mergeServerReminders(userId, data ?? []);
+
+  const deviceId = await getDeviceId();
+
+  for (const row of getPendingCalendarSyncs(deviceId)) {
+    const syncError = await pushCalendarSyncRow(deviceId, row);
+    if (!syncError) continue;
+
+    ok = false;
+    console.warn(
+      "[sync] failed to push calendar sync",
+      row.reminder_id,
+      syncError,
+    );
+    if (!(await checkIsOnline())) return false;
+  }
+
+  const { data: syncs, error: syncsError } = await supabase
+    .from("reminder_calendar_syncs")
+    .select("reminder_id, calendar_event_id")
+    .eq("device_id", deviceId);
+
+  if (syncsError) {
+    console.warn("[sync] failed to pull calendar syncs", syncsError);
+    return false;
+  }
+  mergeServerCalendarSyncs(deviceId, syncs ?? []);
+  return ok;
+}
+
 // --- Orchestration ---
 
 async function runSync(userId: string): Promise<FullSyncResult> {
   if (!(await checkIsOnline())) {
-    return { academicInfoOk: false, requestsOk: false };
+    return { academicInfoOk: false, requestsOk: false, remindersOk: false };
   }
 
   // One table failing (even unexpectedly) never stops the other.
   let academicInfoOk = false;
   let requestsOk = false;
+  let remindersOk = false;
 
   try {
     academicInfoOk = await syncAcademicInfoTable(userId);
@@ -190,9 +345,14 @@ async function runSync(userId: string): Promise<FullSyncResult> {
   } catch (error) {
     console.warn("[sync] unexpected document requests error", error);
   }
+  try {
+    remindersOk = await syncRemindersTable(userId);
+  } catch (error) {
+    console.warn("[sync] unexpected reminders error", error);
+  }
 
   notifyListeners();
-  return { academicInfoOk, requestsOk };
+  return { academicInfoOk, requestsOk, remindersOk };
 }
 
 // One sync at a time. A request that arrives mid-sync (say, the user saves
@@ -208,12 +368,19 @@ export function syncAll(userId: string): Promise<FullSyncResult> {
   }
 
   inFlight = (async () => {
-    let result: FullSyncResult = { academicInfoOk: true, requestsOk: true };
+    let result: FullSyncResult = {
+      academicInfoOk: true,
+      requestsOk: true,
+      remindersOk: true,
+    };
     try {
       do {
         rerunRequested = false;
         result = await runSync(userId);
-      } while (rerunRequested && (result.academicInfoOk || result.requestsOk));
+      } while (
+        rerunRequested &&
+        (result.academicInfoOk || result.requestsOk || result.remindersOk)
+      );
     } finally {
       inFlight = null;
     }
@@ -233,6 +400,11 @@ export async function syncAcademicInfo(userId: string): Promise<SyncResult> {
 export async function syncRequests(userId: string): Promise<SyncResult> {
   const result = await syncAll(userId);
   return { ok: result.requestsOk };
+}
+
+export async function syncReminders(userId: string): Promise<SyncResult> {
+  const result = await syncAll(userId);
+  return { ok: result.remindersOk };
 }
 
 // Fire-and-forget version for call sites that just changed local data and

@@ -1,6 +1,6 @@
 import DateTimePicker from "@expo/ui/community/datetime-picker";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -23,7 +23,12 @@ import {
   cancelReminderNotification,
   scheduleReminderNotification,
 } from "@/lib/notifications";
-import { supabase } from "@/lib/supabase";
+import {
+  deleteReminderLocal,
+  saveReminderLocal,
+  setCalendarEventLocal,
+} from "@/lib/offline-db";
+import { requestSync } from "@/lib/sync";
 import { showAlert } from "@/providers/alert-provider";
 import { useToast } from "@/providers/toast-provider";
 
@@ -94,12 +99,16 @@ export function AddReminderModal({
   const [dueDate, setDueDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Guards against a fast double-tap running save/delete twice - the local
+  // write is instant, so there's no network wait for isSaving to cover.
+  const hasSubmittedRef = useRef(false);
 
   // Re-sync local fields whenever a different reminder is opened for
   // editing (or the modal is opened fresh to add a new one) - same pattern
   // as AddAcademicInfoModal.
   useEffect(() => {
     if (!visible) return;
+    hasSubmittedRef.current = false;
     setTitle(editingReminder?.title ?? "");
     setCategory(editingReminder?.category ?? "document");
     setDueDate(
@@ -116,48 +125,39 @@ export function AddReminderModal({
   }
 
   async function handleSave() {
-    if (!title.trim() || !userId) return;
+    if (!title.trim() || !userId || hasSubmittedRef.current) return;
+    hasSubmittedRef.current = true;
     setIsSaving(true);
 
     const trimmedTitle = title.trim();
     const dueDateForDb = formatDateForDb(dueDate);
 
-    // `type` isn't shown anywhere in this screen's UI - it's a leftover
-    // required column from before Document/Checklist/Payment categories
-    // existed, and only affects the icon/color on Home's older "Document
-    // Alerts" preview cards. Defaulting to "submission" on create matches
-    // the fallback Home already uses for any unrecognized type, and edits
-    // deliberately leave the column untouched (no picker exists for it) -
-    // worth a proper type picker (or dropping the column) later if that
-    // Home styling matters.
-    const { data: savedRow, error } = editingReminder
-      ? await supabase
-          .from("reminders")
-          .update({
-            title: trimmedTitle,
-            category,
-            due_date: dueDateForDb,
-          })
-          .eq("id", editingReminder.id)
-          .select("id")
-          .single()
-      : await supabase
-          .from("reminders")
-          .insert({
-            user_id: userId,
-            title: trimmedTitle,
-            category,
-            type: "submission",
-            due_date: dueDateForDb,
-          })
-          .select("id")
-          .single();
-
-    if (error || !savedRow) {
+    // Saved to the device first, so it works with or without a connection;
+    // requestSync below pushes it to Supabase right away when online (and
+    // sync picks it up on reconnect otherwise).
+    //
+    // `type` isn't part of this: it's a leftover required column from
+    // before Document/Checklist/Payment categories existed, only used by
+    // Home's older "Document Alerts" preview cards. New reminders get
+    // "submission" when sync creates them on the server (matching the
+    // fallback Home already uses for any unrecognized type), and edits
+    // never touch it - worth a proper type picker (or dropping the
+    // column) later if that Home styling matters.
+    let savedId: string;
+    try {
+      savedId = saveReminderLocal(userId, {
+        id: editingReminder?.id,
+        title: trimmedTitle,
+        category,
+        due_date: dueDateForDb,
+      });
+    } catch (error) {
+      hasSubmittedRef.current = false;
       setIsSaving(false);
+      console.error("Failed to save reminder locally", error);
       showAlert(
         "Couldn't save reminder",
-        error?.message ?? "Unknown error",
+        "Something went wrong saving this reminder.",
         undefined,
         { tone: "danger" },
       );
@@ -185,14 +185,9 @@ export function AddReminderModal({
 
         if (newCalendarEventId !== editingReminder?.calendarEventId) {
           const deviceId = await getDeviceId();
-          await supabase.from("reminder_calendar_syncs").upsert(
-            {
-              reminder_id: savedRow.id,
-              device_id: deviceId,
-              calendar_event_id: newCalendarEventId,
-            },
-            { onConflict: "reminder_id,device_id" },
-          );
+          // Recorded on the device; sync.ts pushes it to Supabase after
+          // the reminder itself.
+          setCalendarEventLocal(savedId, deviceId, newCalendarEventId);
         }
       } catch (calendarError) {
         calendarSyncFailed = true;
@@ -208,7 +203,7 @@ export function AddReminderModal({
     if (pushNotificationsEnabled) {
       try {
         await scheduleReminderNotification({
-          id: savedRow.id,
+          id: savedId,
           title: trimmedTitle,
           dueDate: dueDateForDb,
         });
@@ -222,6 +217,7 @@ export function AddReminderModal({
     }
 
     setIsSaving(false);
+    requestSync(userId);
     onSaved();
     onClose();
 
@@ -249,7 +245,7 @@ export function AddReminderModal({
   }
 
   function handleDelete() {
-    if (!editingReminder) return;
+    if (!editingReminder || !userId) return;
     showAlert(
       "Delete reminder",
       `Are you sure you want to delete "${editingReminder.title}"? This can't be undone.`,
@@ -259,17 +255,26 @@ export function AddReminderModal({
           text: "Delete",
           style: "destructive",
           onPress: async () => {
+            if (hasSubmittedRef.current) return;
+            hasSubmittedRef.current = true;
             setIsSaving(true);
-            const { error } = await supabase
-              .from("reminders")
-              .delete()
-              .eq("id", editingReminder.id);
 
-            if (error) {
+            // Deleted on the device first (this also drops the reminder's
+            // calendar sync records, mirroring the server's cascade);
+            // requestSync below removes it from Supabase when a
+            // connection is available.
+            try {
+              deleteReminderLocal(userId, editingReminder.id);
+            } catch (error) {
+              hasSubmittedRef.current = false;
               setIsSaving(false);
-              showAlert("Couldn't delete reminder", error.message, undefined, {
-                tone: "danger",
-              });
+              console.error("Failed to delete reminder locally", error);
+              showAlert(
+                "Couldn't delete reminder",
+                "Something went wrong deleting this reminder.",
+                undefined,
+                { tone: "danger" },
+              );
               return;
             }
 
@@ -277,9 +282,6 @@ export function AddReminderModal({
             // whether Calendar Sync is currently toggled on - it may have
             // been synced earlier and then sync turned off since, and an
             // orphaned event left behind on the device would be confusing.
-            // The reminder_calendar_syncs row for this device is cleaned up
-            // automatically via its `on delete cascade` foreign key - no
-            // separate query needed here.
             if (editingReminder.calendarEventId) {
               await removeReminderEvent(editingReminder.calendarEventId);
             }
@@ -291,6 +293,7 @@ export function AddReminderModal({
             await cancelReminderNotification(editingReminder.id);
 
             setIsSaving(false);
+            requestSync(userId);
             onSaved();
             onClose();
           },

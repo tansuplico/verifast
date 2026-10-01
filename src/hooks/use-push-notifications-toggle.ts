@@ -7,30 +7,30 @@ import {
   requestNotificationPermissionsAsync,
   scheduleReminderNotification,
 } from "@/lib/notifications";
-import { supabase } from "@/lib/supabase";
+import { getRemindersForScheduling } from "@/lib/offline-db";
 import { showAlert } from "@/providers/alert-provider";
 
 export const PUSH_NOTIFICATIONS_STORAGE_KEY =
   "verifast:pushNotificationsEnabled";
 
 // Schedules (or re-schedules - scheduleReminderNotification is idempotent)
-// a notification for every one of the user's pending reminders. Shared by
+// a notification for every one of the user's reminders. Shared by
 // the toggle-on backfill below and the app-start reconcile pass in
 // _layout.tsx, since both need to do exactly this: make sure the device's
 // scheduled notifications match what's actually pending in the database.
 export async function scheduleAllPendingReminders(userId: string) {
-  const { data, error } = await supabase
-    .from("reminders")
-    .select("id, title, due_date")
-    .eq("user_id", userId)
-    .eq("status", "pending");
-
-  if (error) {
+  // Read from the on-device reminders (which sync.ts keeps in step with
+  // Supabase), so this works offline and also covers reminders that were
+  // created offline and haven't reached the server yet.
+  let reminders;
+  try {
+    reminders = getRemindersForScheduling(userId);
+  } catch (error) {
     console.error("Failed to load reminders to schedule", error);
     return;
   }
 
-  for (const reminder of data ?? []) {
+  for (const reminder of reminders) {
     try {
       await scheduleReminderNotification({
         id: reminder.id,

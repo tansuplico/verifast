@@ -11,6 +11,7 @@ import {
 } from "@/components/add-reminder-modal";
 import { LoadErrorState } from "@/components/load-error-state";
 import { MonthCalendar } from "@/components/month-calendar";
+import { OfflineNotice } from "@/components/offline-notice";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
@@ -19,6 +20,7 @@ import {
   type ReminderCategory,
 } from "@/constants/reminder-categories";
 import { Spacing } from "@/constants/theme";
+import { useIsOnline } from "@/hooks/use-network-status";
 import { usePushNotificationsToggle } from "@/hooks/use-push-notifications-toggle";
 import {
   ensureCalendarPermission,
@@ -27,7 +29,14 @@ import {
 } from "@/lib/calendar-sync";
 import { getDeviceId } from "@/lib/device-id";
 import { getScheduledReminderIds } from "@/lib/notifications";
-import { supabase } from "@/lib/supabase";
+import {
+  getCachedReminders,
+  removeCalendarEventLocal,
+  setCalendarEventLocal,
+  type CachedReminderRow,
+  type SyncStatus,
+} from "@/lib/offline-db";
+import { subscribeToSync, syncReminders } from "@/lib/sync";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
@@ -62,7 +71,19 @@ type Reminder = {
   dueDate: string;
   category: ReminderCategory;
   calendarEventId: string | null;
+  syncStatus: SyncStatus;
 };
+
+function toReminder(row: CachedReminderRow): Reminder {
+  return {
+    id: row.id,
+    title: row.title,
+    dueDate: row.due_date,
+    category: row.category,
+    calendarEventId: row.calendar_event_id,
+    syncStatus: row.sync_status,
+  };
+}
 
 function formatFullDate(dateString: string) {
   return new Date(dateString).toLocaleDateString("en-US", {
@@ -117,6 +138,7 @@ function ReminderSkeletonCard() {
 export default function DeadlinesRemindersScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  const isOnline = useIsOnline();
   const [isLoading, setIsLoading] = useState(true);
   const [reminders, setReminders] = useState<Reminder[]>([]);
 
@@ -153,72 +175,55 @@ export default function DeadlinesRemindersScreen() {
     });
   }, []);
 
+  // Local-first: the list always comes from the on-device database, so it
+  // looks and behaves the same with or without a connection. Syncing with
+  // Supabase happens around it (see sync.ts), never in front of it. The
+  // calendar badge comes from the same local copy (this device's calendar
+  // event per reminder), and the alert badge is read back from the OS.
+  const reloadFromLocal = useCallback(async () => {
+    if (!session) return;
+    const deviceId = await getDeviceId();
+    setReminders(getCachedReminders(session.user.id, deviceId).map(toReminder));
+  }, [session]);
+
   const loadReminders = useCallback(async () => {
     if (!session) return;
-    setIsLoading(true);
-
+    const userId = session.user.id;
     const deviceId = await getDeviceId();
 
-    // Two queries + a client-side merge, rather than one query with a
-    // filtered embed - PostgREST's embedded-resource filter semantics
-    // (left join vs. inner join once you filter the embedded table) are
-    // easy to get subtly wrong without a live instance to check against,
-    // and this reminders list is small enough that the extra round trip
-    // costs nothing noticeable.
-    const [remindersResult, syncsResult, scheduledIds] = await Promise.all([
-      supabase
-        .from("reminders")
-        .select("id, title, due_date, category")
-        .eq("user_id", session.user.id)
-        .eq("status", "pending")
-        .order("due_date", { ascending: true }),
-      supabase
-        .from("reminder_calendar_syncs")
-        .select("reminder_id, calendar_event_id")
-        .eq("device_id", deviceId),
-      getScheduledReminderIds(),
-    ]);
+    // Show what's on the device right away. Skeletons only appear when
+    // there is nothing local yet (first ever load while online).
+    const local = getCachedReminders(userId, deviceId);
+    setReminders(local.map(toReminder));
+    setScheduledReminderIds(await getScheduledReminderIds());
+    if (local.length > 0) setIsLoading(false);
 
-    setScheduledReminderIds(scheduledIds);
-
-    if (remindersResult.error) {
-      console.error("Failed to load reminders", remindersResult.error);
-      setLoadError(true);
-    } else {
+    if (!isOnline) {
       setLoadError(false);
-
-      if (syncsResult.error) {
-        // Non-fatal: the reminders list itself still loads fine, it just
-        // can't say which ones are synced to this device's calendar until
-        // the next successful load.
-        console.error("Failed to load calendar sync state", syncsResult.error);
-      }
-
-      const calendarEventIdByReminderId = new Map(
-        (syncsResult.data ?? []).map((row) => [
-          row.reminder_id,
-          row.calendar_event_id,
-        ]),
-      );
-
-      setReminders(
-        (remindersResult.data ?? []).map((row) => ({
-          id: row.id,
-          title: row.title,
-          dueDate: row.due_date,
-          category: row.category as ReminderCategory,
-          calendarEventId: calendarEventIdByReminderId.get(row.id) ?? null,
-        })),
-      );
+      setIsLoading(false);
+      return;
     }
 
+    const syncResult = await syncReminders(userId);
+    const afterSync = getCachedReminders(userId, deviceId);
+    setReminders(afterSync.map(toReminder));
+    // Only a failed sync with nothing on the device is worth an error
+    // screen; otherwise the local list is still perfectly usable.
+    setLoadError(!syncResult.ok && afterSync.length === 0);
     setIsLoading(false);
-  }, [session]);
+  }, [session, isOnline]);
 
   useFocusEffect(
     useCallback(() => {
       loadReminders();
     }, [loadReminders]),
+  );
+
+  // A background sync (reconnect, app foreground, a save's own push) can
+  // clear "waiting to sync" badges or pull in reminders from another device.
+  useEffect(
+    () => subscribeToSync(() => void reloadFromLocal()),
+    [reloadFromLocal],
   );
 
   // Overdue reminders are counted separately rather than lumped in with
@@ -270,11 +275,9 @@ export default function DeadlinesRemindersScreen() {
     const deviceId = await getDeviceId();
     for (const reminder of synced) {
       await removeReminderEvent(reminder.calendarEventId);
-      await supabase
-        .from("reminder_calendar_syncs")
-        .delete()
-        .eq("reminder_id", reminder.id)
-        .eq("device_id", deviceId);
+      // Recorded on the device; sync.ts removes it from Supabase when a
+      // connection is available.
+      removeCalendarEventLocal(reminder.id, deviceId);
     }
     setIsSyncingCalendar(false);
     await loadReminders();
@@ -317,14 +320,7 @@ export default function DeadlinesRemindersScreen() {
           dueDate: reminder.dueDate,
           categoryLabel: CATEGORY_STYLE[reminder.category].label,
         });
-        await supabase.from("reminder_calendar_syncs").upsert(
-          {
-            reminder_id: reminder.id,
-            device_id: deviceId,
-            calendar_event_id: calendarEventId,
-          },
-          { onConflict: "reminder_id,device_id" },
-        );
+        setCalendarEventLocal(reminder.id, deviceId, calendarEventId);
       } catch (calendarError) {
         failureCount += 1;
         console.error(
@@ -473,6 +469,14 @@ export default function DeadlinesRemindersScreen() {
             )}
           </View>
           <View style={styles.cardIconRow}>
+            {reminder.syncStatus !== "synced" && (
+              <Ionicons
+                name="cloud-upload-outline"
+                size={16}
+                color="#a5a9b1"
+                accessibilityLabel="Waiting to sync"
+              />
+            )}
             {reminder.calendarEventId && (
               <Ionicons
                 name="calendar"
@@ -561,6 +565,10 @@ export default function DeadlinesRemindersScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {!isOnline && (
+            <OfflineNotice message="You're offline - changes will sync when you're back online" />
+          )}
+
           <View
             style={[
               styles.summary,

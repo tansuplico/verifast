@@ -11,6 +11,7 @@ import { CrashBoundary } from "@/components/crash-boundary";
 import { useOfflineSync } from "@/hooks/use-offline-sync";
 import { reconcileReminderNotifications } from "@/hooks/use-push-notifications-toggle";
 import { configureNotificationHandler } from "@/lib/notifications";
+import { subscribeToSync } from "@/lib/sync";
 import { AlertProvider } from "@/providers/alert-provider";
 import { AuthProvider, useAuth } from "@/providers/auth-provider";
 import { ToastProvider } from "@/providers/toast-provider";
@@ -64,6 +65,15 @@ function RootNavigator() {
   useEffect(() => {
     if (!isFullyAuthenticated || !session) return;
     reconcileReminderNotifications(session.user.id);
+
+    // Reminders now come from the on-device copy, which a sync can change
+    // (a reminder pulled in from another device, one pushed after being
+    // created offline) - so catch notifications up after every sync too,
+    // not just at launch.
+    const userId = session.user.id;
+    return subscribeToSync(() => {
+      reconcileReminderNotifications(userId);
+    });
   }, [isFullyAuthenticated, session]);
 
   // Pushes changes made offline once the app is fully signed in, and keeps

@@ -40,7 +40,8 @@ function getDb(): SQLiteDatabase {
         mime_type TEXT,
         file_size INTEGER,
         created_at TEXT NOT NULL,
-        icon_color TEXT
+        icon_color TEXT,
+        updated_at TEXT
       );
 
       CREATE TABLE IF NOT EXISTS cached_academic_info (
@@ -87,6 +88,21 @@ function getDb(): SQLiteDatabase {
         PRIMARY KEY (reminder_id, device_id)
       );
 
+      CREATE TABLE IF NOT EXISTS cached_profile (
+        user_id TEXT PRIMARY KEY NOT NULL,
+        full_name TEXT,
+        student_id TEXT,
+        program TEXT,
+        avatar_url TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS cached_subscription (
+        user_id TEXT PRIMARY KEY NOT NULL,
+        status TEXT NOT NULL,
+        trial_ends_at TEXT,
+        current_period_end TEXT
+      );
+
       CREATE TABLE IF NOT EXISTS downloaded_files (
         document_id TEXT PRIMARY KEY NOT NULL,
         local_uri TEXT NOT NULL,
@@ -120,6 +136,17 @@ function getDb(): SQLiteDatabase {
     if (!academicInfoColumns.some((c) => c.name === "local_rev")) {
       database.execSync(
         "ALTER TABLE cached_academic_info ADD COLUMN local_rev INTEGER NOT NULL DEFAULT 0",
+      );
+    }
+
+    // Same idea for cached_documents: Home sorts recent documents by
+    // updated_at, which the first version of this cache didn't store.
+    const documentColumns = database.getAllSync<{ name: string }>(
+      "PRAGMA table_info(cached_documents)",
+    );
+    if (!documentColumns.some((c) => c.name === "updated_at")) {
+      database.execSync(
+        "ALTER TABLE cached_documents ADD COLUMN updated_at TEXT",
       );
     }
 
@@ -168,8 +195,8 @@ export function cacheDocuments(userId: string, documents: DocumentRow[]) {
     for (const doc of documents) {
       database.runSync(
         `INSERT INTO cached_documents
-          (id, user_id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, user_id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           doc.id,
           userId,
@@ -180,6 +207,7 @@ export function cacheDocuments(userId: string, documents: DocumentRow[]) {
           doc.file_size,
           doc.created_at,
           doc.icon_color,
+          doc.updated_at ?? null,
         ],
       );
     }
@@ -188,7 +216,7 @@ export function cacheDocuments(userId: string, documents: DocumentRow[]) {
 
 export function getCachedDocuments(userId: string): DocumentRow[] {
   return getDb().getAllSync<DocumentRow>(
-    "SELECT id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color FROM cached_documents WHERE user_id = ? ORDER BY created_at DESC",
+    "SELECT id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at FROM cached_documents WHERE user_id = ? ORDER BY created_at DESC",
     [userId],
   );
 }
@@ -980,6 +1008,129 @@ export function mergeServerCalendarSyncs(
       );
     }
   });
+}
+
+// --- Read-only account data: profile, plan, and Home's summaries ---
+//
+// Nothing here is edited offline (profile edits and billing stay online),
+// so these are plain copies refreshed by sync.ts - they just let Home,
+// Profile and the Free-plan check keep working without a connection.
+
+export type CachedProfile = {
+  full_name: string | null;
+  student_id: string | null;
+  program: string | null;
+  avatar_url: string | null;
+};
+
+export function cacheProfile(userId: string, profile: CachedProfile | null) {
+  const database = getDb();
+  if (!profile) {
+    database.runSync("DELETE FROM cached_profile WHERE user_id = ?", [userId]);
+    return;
+  }
+  database.runSync(
+    `INSERT OR REPLACE INTO cached_profile
+      (user_id, full_name, student_id, program, avatar_url)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      userId,
+      profile.full_name,
+      profile.student_id,
+      profile.program,
+      profile.avatar_url,
+    ],
+  );
+}
+
+export function getCachedProfile(userId: string): CachedProfile | null {
+  return getDb().getFirstSync<CachedProfile>(
+    "SELECT full_name, student_id, program, avatar_url FROM cached_profile WHERE user_id = ?",
+    [userId],
+  );
+}
+
+export type CachedSubscription = {
+  status: "trialing" | "active" | "past_due" | "canceled" | "expired";
+  trial_ends_at: string | null;
+  current_period_end: string | null;
+};
+
+export function cacheSubscription(
+  userId: string,
+  subscription: CachedSubscription | null,
+) {
+  const database = getDb();
+  if (!subscription) {
+    database.runSync("DELETE FROM cached_subscription WHERE user_id = ?", [
+      userId,
+    ]);
+    return;
+  }
+  database.runSync(
+    `INSERT OR REPLACE INTO cached_subscription
+      (user_id, status, trial_ends_at, current_period_end)
+     VALUES (?, ?, ?, ?)`,
+    [
+      userId,
+      subscription.status,
+      subscription.trial_ends_at,
+      subscription.current_period_end,
+    ],
+  );
+}
+
+export function getCachedSubscription(
+  userId: string,
+): CachedSubscription | null {
+  return getDb().getFirstSync<CachedSubscription>(
+    "SELECT status, trial_ends_at, current_period_end FROM cached_subscription WHERE user_id = ?",
+    [userId],
+  );
+}
+
+// Home's "Documents Stored" count and "Recently Accessed" list, from the
+// cached documents. Falls back to created_at for documents cached before
+// updated_at was stored.
+export function getCachedDocumentSummary(userId: string): {
+  count: number;
+  recent: {
+    id: string;
+    name: string;
+    mime_type: string | null;
+    opened_at: string;
+  }[];
+} {
+  const database = getDb();
+  const countRow = database.getFirstSync<{ total: number }>(
+    "SELECT COUNT(*) AS total FROM cached_documents WHERE user_id = ?",
+    [userId],
+  );
+  const recent = database.getAllSync<{
+    id: string;
+    name: string;
+    mime_type: string | null;
+    opened_at: string;
+  }>(
+    `SELECT id, name, mime_type, COALESCE(updated_at, created_at) AS opened_at
+     FROM cached_documents WHERE user_id = ?
+     ORDER BY opened_at DESC LIMIT 3`,
+    [userId],
+  );
+  return { count: countRow?.total ?? 0, recent };
+}
+
+// Home's "Document Alerts": the soonest-due reminders.
+export function getUpcomingReminders(
+  userId: string,
+  limit: number,
+): ServerReminderRow[] {
+  return getDb().getAllSync<ServerReminderRow>(
+    `SELECT id, title, category, due_date FROM cached_reminders
+     WHERE user_id = ? AND sync_status != 'pending_delete'
+     ORDER BY due_date ASC LIMIT ?`,
+    [userId, limit],
+  );
 }
 
 // --- Downloaded document files (offline-files.ts) ---

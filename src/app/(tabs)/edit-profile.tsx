@@ -17,6 +17,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { checkIsOnline } from "@/hooks/use-network-status";
+import { cacheProfile, getCachedProfile } from "@/lib/offline-db";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -69,11 +71,15 @@ export default function EditProfileScreen() {
     if (!session) return;
     setIsLoading(true);
 
-    const { data } = await supabase
+    const { data: fetched } = await supabase
       .from("profiles")
       .select("full_name, student_id, program, avatar_url")
       .eq("id", session.user.id)
       .single<ProfileRow>();
+
+    // Offline (or a failed fetch): fill the form from the on-device copy so
+    // it isn't blank. Saving still needs a connection - see handleSave.
+    const data = fetched ?? getCachedProfile(session.user.id);
 
     setFullName(data?.full_name ?? "");
     setStudentId(data?.student_id ?? "");
@@ -153,6 +159,19 @@ export default function EditProfileScreen() {
 
   async function handleSave() {
     if (!session) return;
+
+    // Profile changes (and the photo upload) are the one thing that stays
+    // online-only - say so plainly instead of surfacing a raw network error.
+    if (!(await checkIsOnline())) {
+      showAlert(
+        "You're offline",
+        "Profile changes need an internet connection. Try again once you're back online.",
+        undefined,
+        { tone: "danger" },
+      );
+      return;
+    }
+
     setIsSaving(true);
 
     // avatars is a separate PUBLIC bucket from "documents" (which is private
@@ -207,6 +226,15 @@ export default function EditProfileScreen() {
       });
       return;
     }
+
+    // Keep the on-device copy in step so Home, Profile and Academic Info show
+    // the new details immediately, even offline right after saving.
+    cacheProfile(session.user.id, {
+      full_name: fullName.trim() || null,
+      student_id: studentId.trim() || null,
+      program: program.trim() || null,
+      avatar_url: avatarUrl,
+    });
 
     showToast("Profile updated");
     router.back();

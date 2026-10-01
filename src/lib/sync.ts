@@ -1,6 +1,10 @@
 import { checkIsOnline } from "@/hooks/use-network-status";
 import { getDeviceId } from "@/lib/device-id";
 import {
+  cacheDocuments,
+  cacheFolders,
+  cacheProfile,
+  cacheSubscription,
   discardReminder,
   getPendingAcademicInfo,
   getPendingCalendarSyncs,
@@ -41,7 +45,18 @@ type FullSyncResult = {
   academicInfoOk: boolean;
   requestsOk: boolean;
   remindersOk: boolean;
+  // Profile, plan, folders and documents - read-only copies, nothing to push.
+  accountOk: boolean;
 };
+
+function allOk(result: FullSyncResult) {
+  return (
+    result.academicInfoOk &&
+    result.requestsOk &&
+    result.remindersOk &&
+    result.accountOk
+  );
+}
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -323,17 +338,92 @@ async function syncRemindersTable(userId: string): Promise<boolean> {
   return ok;
 }
 
+// --- Account data (read-only: profile, plan, folders, documents) ---
+//
+// Nothing here is edited offline, so there's nothing to push - this just
+// keeps the on-device copies fresh so Home, Profile and the Free-plan
+// check can run without a connection. Documents and folders replace the
+// cache wholesale, exactly like the Documents screen's own load does.
+
+export async function refreshAccountData(userId: string): Promise<boolean> {
+  if (!(await checkIsOnline())) return false;
+
+  let ok = true;
+
+  const [profileResult, subscriptionResult, foldersResult, documentsResult] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select("full_name, student_id, program, avatar_url")
+        .eq("id", userId)
+        .maybeSingle(),
+      supabase
+        .from("subscriptions")
+        .select("status, trial_ends_at, current_period_end")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      supabase
+        .from("folders")
+        .select("id, category, name")
+        .eq("user_id", userId),
+      supabase
+        .from("documents")
+        .select(
+          "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at",
+        )
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false }),
+    ]);
+
+  if (profileResult.error) {
+    ok = false;
+    console.warn("[sync] failed to pull profile", profileResult.error);
+  } else {
+    cacheProfile(userId, profileResult.data);
+  }
+
+  if (subscriptionResult.error) {
+    ok = false;
+    console.warn(
+      "[sync] failed to pull subscription",
+      subscriptionResult.error,
+    );
+  } else {
+    cacheSubscription(userId, subscriptionResult.data);
+  }
+
+  if (foldersResult.error || documentsResult.error) {
+    ok = false;
+    console.warn(
+      "[sync] failed to pull documents",
+      foldersResult.error ?? documentsResult.error,
+    );
+  } else {
+    cacheFolders(userId, foldersResult.data ?? []);
+    cacheDocuments(userId, documentsResult.data ?? []);
+  }
+
+  notifyListeners();
+  return ok;
+}
+
 // --- Orchestration ---
 
 async function runSync(userId: string): Promise<FullSyncResult> {
   if (!(await checkIsOnline())) {
-    return { academicInfoOk: false, requestsOk: false, remindersOk: false };
+    return {
+      academicInfoOk: false,
+      requestsOk: false,
+      remindersOk: false,
+      accountOk: false,
+    };
   }
 
   // One table failing (even unexpectedly) never stops the other.
   let academicInfoOk = false;
   let requestsOk = false;
   let remindersOk = false;
+  let accountOk = false;
 
   try {
     academicInfoOk = await syncAcademicInfoTable(userId);
@@ -350,21 +440,52 @@ async function runSync(userId: string): Promise<FullSyncResult> {
   } catch (error) {
     console.warn("[sync] unexpected reminders error", error);
   }
+  try {
+    accountOk = await refreshAccountData(userId);
+  } catch (error) {
+    console.warn("[sync] unexpected account data error", error);
+  }
 
   notifyListeners();
-  return { academicInfoOk, requestsOk, remindersOk };
+  return { academicInfoOk, requestsOk, remindersOk, accountOk };
 }
 
-// One sync at a time. A request that arrives mid-sync (say, the user saves
-// again while a push is in flight) is folded into one follow-up run instead
-// of starting a second overlapping one.
+// One sync at a time. A forced request that arrives mid-sync (say, the user
+// saves again while a push is in flight) is folded into one follow-up run
+// instead of starting a second overlapping one. Plain requests - a screen
+// coming into focus - just join whatever is already running.
+//
+// Screens also share a short cooldown: switching between tabs would
+// otherwise run a full sync (a dozen queries) on every focus. Anything
+// that has local changes to push, or a reason to refresh right now
+// (reconnect, app foreground, pull-to-refresh), passes force and always runs.
+const COOLDOWN_MS = 15_000;
+
 let inFlight: Promise<FullSyncResult> | null = null;
 let rerunRequested = false;
+let lastRun: {
+  userId: string;
+  finishedAt: number;
+  result: FullSyncResult;
+} | null = null;
 
-export function syncAll(userId: string): Promise<FullSyncResult> {
+export function syncAll(
+  userId: string,
+  options: { force?: boolean } = {},
+): Promise<FullSyncResult> {
   if (inFlight) {
-    rerunRequested = true;
+    if (options.force) rerunRequested = true;
     return inFlight;
+  }
+
+  if (
+    !options.force &&
+    lastRun &&
+    lastRun.userId === userId &&
+    allOk(lastRun.result) &&
+    Date.now() - lastRun.finishedAt < COOLDOWN_MS
+  ) {
+    return Promise.resolve(lastRun.result);
   }
 
   inFlight = (async () => {
@@ -372,6 +493,7 @@ export function syncAll(userId: string): Promise<FullSyncResult> {
       academicInfoOk: true,
       requestsOk: true,
       remindersOk: true,
+      accountOk: true,
     };
     try {
       do {
@@ -379,8 +501,12 @@ export function syncAll(userId: string): Promise<FullSyncResult> {
         result = await runSync(userId);
       } while (
         rerunRequested &&
-        (result.academicInfoOk || result.requestsOk || result.remindersOk)
+        (result.academicInfoOk ||
+          result.requestsOk ||
+          result.remindersOk ||
+          result.accountOk)
       );
+      lastRun = { userId, finishedAt: Date.now(), result };
     } finally {
       inFlight = null;
     }
@@ -392,23 +518,32 @@ export function syncAll(userId: string): Promise<FullSyncResult> {
 
 // Per-screen views of the same sync: each screen only cares whether its
 // own table made it.
-export async function syncAcademicInfo(userId: string): Promise<SyncResult> {
-  const result = await syncAll(userId);
+export async function syncAcademicInfo(
+  userId: string,
+  force = false,
+): Promise<SyncResult> {
+  const result = await syncAll(userId, { force });
   return { ok: result.academicInfoOk };
 }
 
-export async function syncRequests(userId: string): Promise<SyncResult> {
-  const result = await syncAll(userId);
+export async function syncRequests(
+  userId: string,
+  force = false,
+): Promise<SyncResult> {
+  const result = await syncAll(userId, { force });
   return { ok: result.requestsOk };
 }
 
-export async function syncReminders(userId: string): Promise<SyncResult> {
-  const result = await syncAll(userId);
+export async function syncReminders(
+  userId: string,
+  force = false,
+): Promise<SyncResult> {
+  const result = await syncAll(userId, { force });
   return { ok: result.remindersOk };
 }
 
 // Fire-and-forget version for call sites that just changed local data and
 // want it pushed as soon as possible (e.g. right after a save).
 export function requestSync(userId: string) {
-  void syncAll(userId);
+  void syncAll(userId, { force: true });
 }

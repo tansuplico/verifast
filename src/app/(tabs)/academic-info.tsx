@@ -25,8 +25,11 @@ import {
 } from "@/constants/academic-info-categories";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { useIsOnline } from "@/hooks/use-network-status";
-import { getCachedAcademicInfo, type SyncStatus } from "@/lib/offline-db";
-import { supabase } from "@/lib/supabase";
+import {
+  getCachedAcademicInfo,
+  getCachedProfile,
+  type SyncStatus,
+} from "@/lib/offline-db";
 import { subscribeToSync, syncAcademicInfo } from "@/lib/sync";
 import { showComingSoon } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -109,6 +112,7 @@ export default function AcademicInfoScreen() {
       // there is nothing local yet (first ever load while online).
       const local = getCachedAcademicInfo(userId);
       setItems(local);
+      setProgram(getCachedProfile(userId)?.program ?? null);
       if (local.length > 0) setIsLoading(false);
       if (isRefresh) setIsRefreshing(true);
 
@@ -119,14 +123,10 @@ export default function AcademicInfoScreen() {
         return;
       }
 
-      const [syncResult, profileResult] = await Promise.all([
-        syncAcademicInfo(userId),
-        supabase.from("profiles").select("program").eq("id", userId).single(),
-      ]);
-
-      if (!profileResult.error) {
-        setProgram(profileResult.data?.program ?? null);
-      }
+      const syncResult = await syncAcademicInfo(userId, isRefresh);
+      // The program subtitle comes from the profile copy the sync keeps
+      // on the device, so it also shows offline.
+      setProgram(getCachedProfile(userId)?.program ?? null);
 
       const afterSync = getCachedAcademicInfo(userId);
       setItems(afterSync);

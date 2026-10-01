@@ -7,4 +7,6 @@ export type DocumentRow = {
   file_size: number | null;
   created_at: string;
   icon_color: string | null;
+  // Only fetched where it's needed (Home's "Recently Accessed" ordering).
+  updated_at?: string | null;
 };

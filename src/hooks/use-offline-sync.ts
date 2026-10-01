@@ -13,7 +13,7 @@ export function useOfflineSync(userId: string | null) {
   useEffect(() => {
     if (!userId) return;
 
-    syncAll(userId);
+    syncAll(userId, { force: true });
 
     // NetInfo calls back immediately on subscribe and on every change
     // (wifi <-> cellular included), so only react to offline -> online.
@@ -22,7 +22,7 @@ export function useOfflineSync(userId: string | null) {
       const isOnline =
         state.isConnected === true && state.isInternetReachable !== false;
       if (isOnline && wasOnline === false) {
-        syncAll(userId);
+        syncAll(userId, { force: true });
       }
       wasOnline = isOnline;
     });
@@ -30,7 +30,7 @@ export function useOfflineSync(userId: string | null) {
     const appStateSubscription = AppState.addEventListener(
       "change",
       (nextState) => {
-        if (nextState === "active") syncAll(userId);
+        if (nextState === "active") syncAll(userId, { force: true });
       },
     );
 

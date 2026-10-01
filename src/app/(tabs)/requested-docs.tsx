@@ -113,7 +113,7 @@ export default function RequestedDocsScreen() {
         return;
       }
 
-      const syncResult = await syncRequests(userId);
+      const syncResult = await syncRequests(userId, isRefresh);
       const afterSync = getCachedRequests(userId);
       setRequests(afterSync);
       // Only a failed sync with nothing on the device is worth an error

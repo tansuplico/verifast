@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -11,6 +11,7 @@ import {
 } from "react-native";
 
 import { LoadErrorState } from "@/components/load-error-state";
+import { OfflineNotice } from "@/components/offline-notice";
 import { ThemedText } from "@/components/themed-text";
 import {
   CATEGORY_STYLE,
@@ -23,7 +24,14 @@ import {
   STATUS_STYLE,
 } from "@/constants/request-status";
 import { BottomTabInset, Spacing } from "@/constants/theme";
-import { supabase } from "@/lib/supabase";
+import { useIsOnline } from "@/hooks/use-network-status";
+import {
+  getCachedDocumentSummary,
+  getCachedProfile,
+  getCachedRequests,
+  getUpcomingReminders,
+} from "@/lib/offline-db";
+import { subscribeToSync, syncAll } from "@/lib/sync";
 import { useAuth } from "@/providers/auth-provider";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -32,7 +40,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 // migration) - so this is a fixed constant, not data that needs fetching.
 const FOLDERS_COUNT = 4;
 
-const CLOCK_SKEW_ERROR_CODE = "PGRST303";
 const CLOCK_SKEW_RETRY_DELAY_MS = 1500;
 
 function sleep(ms: number) {
@@ -95,6 +102,7 @@ const DOC_COLORS = ["#10b1a3", "#0BDA51", "#3b82f6", "#8b5cf6"];
 export default function HomeScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  const isOnline = useIsOnline();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [fullName, setFullName] = useState<string | null>(null);
@@ -104,141 +112,120 @@ export default function HomeScreen() {
   const [requestPreviews, setRequestPreviews] = useState<RequestPreview[]>([]);
   const [loadError, setLoadError] = useState(false);
 
+  // Everything on Home is built from the on-device copies (documents,
+  // reminders, requests, profile), so it looks the same with or without a
+  // connection. Syncing with Supabase happens around it (see sync.ts).
+  // Returns whether anything was found, for the empty-vs-error decision.
+  const applyLocalData = useCallback(() => {
+    if (!session) return false;
+    const userId = session.user.id;
+
+    const profile = getCachedProfile(userId);
+    const documents = getCachedDocumentSummary(userId);
+    const reminders = getUpcomingReminders(userId, 3);
+    const requests = getCachedRequests(userId).slice(0, 3);
+
+    setFullName(profile?.full_name ?? null);
+    setDocumentsCount(documents.count);
+
+    setRecentDocuments(
+      documents.recent.map((doc, index) => ({
+        id: doc.id,
+        title: doc.name,
+        openedOn: formatShortDate(doc.opened_at),
+        icon: iconForMimeType(doc.mime_type),
+        color: DOC_COLORS[index % DOC_COLORS.length],
+      })),
+    );
+
+    setDocumentAlerts(
+      reminders.map((reminder) => {
+        const style = CATEGORY_STYLE[reminder.category as ReminderCategory];
+        return {
+          id: reminder.id,
+          date: formatShortDate(reminder.due_date),
+          text: reminder.title,
+          icon: style.icon,
+          color: style.color,
+        };
+      }),
+    );
+
+    setRequestPreviews(
+      requests.map((request, index) => {
+        const statusStyle = STATUS_STYLE[request.status as RequestStatus];
+        return {
+          id: request.id,
+          title: request.document_type,
+          office: request.office,
+          icon: iconForRequestType(request.document_type),
+          badgeColor: REQUEST_COLORS[index % REQUEST_COLORS.length],
+          statusLabel: statusStyle.label,
+          statusColor: statusStyle.color,
+          statusBackground: statusStyle.background,
+          statusIcon: statusStyle.icon,
+        };
+      }),
+    );
+
+    return (
+      profile !== null ||
+      documents.count > 0 ||
+      reminders.length > 0 ||
+      requests.length > 0
+    );
+  }, [session]);
+
   const loadHomeData = useCallback(
     async (isRefresh = false) => {
       if (!session) return;
-      isRefresh ? setIsRefreshing(true) : setIsLoading(true);
+      const userId = session.user.id;
 
-      const fetchAll = () =>
-        Promise.all([
-          supabase
-            .from("profiles")
-            .select("full_name")
-            .eq("id", session.user.id)
-            .single(),
-          supabase
-            .from("documents")
-            .select("*", { count: "exact", head: true })
-            .eq("user_id", session.user.id),
-          supabase
-            .from("documents")
-            .select("id, name, mime_type, updated_at")
-            .eq("user_id", session.user.id)
-            .order("updated_at", { ascending: false })
-            .limit(3),
-          supabase
-            .from("reminders")
-            .select("id, title, category, due_date")
-            .eq("user_id", session.user.id)
-            .eq("status", "pending")
-            .order("due_date", { ascending: true })
-            .limit(3),
-          supabase
-            .from("document_requests")
-            .select("id, document_type, office, status")
-            .eq("user_id", session.user.id)
-            .order("created_at", { ascending: false })
-            .limit(3),
-        ]);
+      // Show what's on the device right away. The "..." placeholders only
+      // appear when there is nothing local yet (first ever load).
+      const hadLocalData = applyLocalData();
+      if (hadLocalData) setIsLoading(false);
+      if (isRefresh) setIsRefreshing(true);
 
-      let [
-        profileResult,
-        countResult,
-        recentResult,
-        remindersResult,
-        requestsResult,
-      ] = await fetchAll();
+      if (!isOnline) {
+        setLoadError(false);
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+
+      let result = await syncAll(userId, { force: isRefresh });
+      let ok =
+        result.accountOk &&
+        result.academicInfoOk &&
+        result.requestsOk &&
+        result.remindersOk;
 
       // A just-issued token's `iat` is the exact sign-in instant, which is
       // precisely when a few seconds of clock skew between Supabase's Auth
       // and PostgREST services is most likely to make a fresh token look
-      // "issued in the future" (PGRST303). One retry after a short delay
+      // "issued in the future" (PGRST303). If the very first load after
+      // signing in comes back empty-handed, one retry after a short delay
       // gives the token a couple seconds of age, which reliably clears it -
       // this is project-side timing, not a problem with the query itself.
-      const hasClockSkewError = [
-        profileResult.error,
-        countResult.error,
-        recentResult.error,
-        remindersResult.error,
-        requestsResult.error,
-      ].some((error) => error?.code === CLOCK_SKEW_ERROR_CODE);
-
-      if (hasClockSkewError) {
+      if (!ok && !hadLocalData) {
         await sleep(CLOCK_SKEW_RETRY_DELAY_MS);
-        [
-          profileResult,
-          countResult,
-          recentResult,
-          remindersResult,
-          requestsResult,
-        ] = await fetchAll();
+        result = await syncAll(userId, { force: true });
+        ok =
+          result.accountOk &&
+          result.academicInfoOk &&
+          result.requestsOk &&
+          result.remindersOk;
       }
 
-      if (
-        profileResult.error ||
-        countResult.error ||
-        recentResult.error ||
-        remindersResult.error ||
-        requestsResult.error
-      ) {
-        console.error(
-          "Failed to load home data",
-          profileResult.error ??
-            countResult.error ??
-            recentResult.error ??
-            remindersResult.error ??
-            requestsResult.error,
-        );
-        setLoadError(true);
-      } else {
-        setLoadError(false);
-        setFullName(profileResult.data?.full_name ?? null);
-        setDocumentsCount(countResult.count ?? 0);
-
-        setRecentDocuments(
-          (recentResult.data ?? []).map((doc, index) => ({
-            id: doc.id,
-            title: doc.name,
-            openedOn: formatShortDate(doc.updated_at),
-            icon: iconForMimeType(doc.mime_type),
-            color: DOC_COLORS[index % DOC_COLORS.length],
-          })),
-        );
-
-        setDocumentAlerts(
-          (remindersResult.data ?? []).map((reminder) => {
-            const style = CATEGORY_STYLE[reminder.category as ReminderCategory];
-            return {
-              id: reminder.id,
-              date: formatShortDate(reminder.due_date),
-              text: reminder.title,
-              icon: style.icon,
-              color: style.color,
-            };
-          }),
-        );
-
-        setRequestPreviews(
-          (requestsResult.data ?? []).map((request, index) => {
-            const statusStyle = STATUS_STYLE[request.status as RequestStatus];
-            return {
-              id: request.id,
-              title: request.document_type,
-              office: request.office,
-              icon: iconForRequestType(request.document_type),
-              badgeColor: REQUEST_COLORS[index % REQUEST_COLORS.length],
-              statusLabel: statusStyle.label,
-              statusColor: statusStyle.color,
-              statusBackground: statusStyle.background,
-              statusIcon: statusStyle.icon,
-            };
-          }),
-        );
-      }
-
-      isRefresh ? setIsRefreshing(false) : setIsLoading(false);
+      const hasData = applyLocalData();
+      // Only a failed sync with nothing on the device is worth an error
+      // banner; otherwise what's local is still perfectly usable.
+      setLoadError(!ok && !hasData);
+      setIsLoading(false);
+      setIsRefreshing(false);
     },
-    [session],
+    [session, isOnline, applyLocalData],
   );
 
   // Refetch every time Home regains focus, so adding a document or
@@ -247,6 +234,13 @@ export default function HomeScreen() {
     useCallback(() => {
       loadHomeData();
     }, [loadHomeData]),
+  );
+
+  // A background sync (reconnect, app foreground, a change's own push) can
+  // change any of these lists, so re-read them whenever one finishes.
+  useEffect(
+    () => subscribeToSync(() => void applyLocalData()),
+    [applyLocalData],
   );
 
   const displayName =
@@ -292,6 +286,8 @@ export default function HomeScreen() {
             </View>
           </View>
         </LinearGradient>
+
+        {!isOnline && <OfflineNotice />}
 
         {loadError && <LoadErrorState onRetry={() => loadHomeData()} />}
 

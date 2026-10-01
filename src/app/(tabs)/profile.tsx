@@ -1,7 +1,14 @@
 import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { useIsOnline } from "@/hooks/use-network-status";
 import { usePushNotificationsToggle } from "@/hooks/use-push-notifications-toggle";
+import {
+  cacheProfile,
+  cacheSubscription,
+  getCachedProfile,
+  getCachedSubscription,
+} from "@/lib/offline-db";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -78,6 +85,7 @@ function subscriptionCopy(sub: SubscriptionRow | null) {
 export default function ProfileScreen() {
   const router = useRouter();
   const { session, signOut } = useAuth();
+  const isOnline = useIsOnline();
   const [isLoading, setIsLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(
@@ -92,27 +100,47 @@ export default function ProfileScreen() {
     toggle: handlePushToggle,
   } = usePushNotificationsToggle(session?.user.id);
 
+  // The on-device copy shows instantly (and is all there is offline); when
+  // online, a fresh fetch replaces it and refreshes the copy, so a plan or
+  // name change shows up the moment this screen is opened.
   const loadProfile = useCallback(async () => {
     if (!session) return;
-    setIsLoading(true);
+    const userId = session.user.id;
+
+    const cachedProfile = getCachedProfile(userId);
+    const cachedSubscription = getCachedSubscription(userId);
+    setProfile(cachedProfile);
+    setSubscription(cachedSubscription);
+    if (cachedProfile) setIsLoading(false);
+
+    if (!isOnline) {
+      setIsLoading(false);
+      return;
+    }
 
     const [profileResult, subscriptionResult] = await Promise.all([
       supabase
         .from("profiles")
         .select("full_name, student_id, program, avatar_url")
-        .eq("id", session.user.id)
+        .eq("id", userId)
         .single(),
       supabase
         .from("subscriptions")
         .select("status, trial_ends_at, current_period_end")
-        .eq("user_id", session.user.id)
+        .eq("user_id", userId)
         .single(),
     ]);
 
-    setProfile(profileResult.data ?? null);
-    setSubscription(subscriptionResult.data ?? null);
+    if (!profileResult.error) {
+      setProfile(profileResult.data ?? null);
+      cacheProfile(userId, profileResult.data ?? null);
+    }
+    if (!subscriptionResult.error) {
+      setSubscription(subscriptionResult.data ?? null);
+      cacheSubscription(userId, subscriptionResult.data ?? null);
+    }
     setIsLoading(false);
-  }, [session]);
+  }, [session, isOnline]);
 
   useFocusEffect(
     useCallback(() => {

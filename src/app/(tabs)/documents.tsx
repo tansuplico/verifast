@@ -29,8 +29,10 @@ import { useIsOnline } from "@/hooks/use-network-status";
 import {
   cacheDocuments,
   cacheFolders,
+  cacheSubscription,
   getCachedDocuments,
   getCachedFolders,
+  getCachedSubscription,
 } from "@/lib/offline-db";
 import {
   cacheDocumentFileForOffline,
@@ -162,6 +164,11 @@ export default function DocumentsScreen() {
       if (!isOnline) {
         const cachedFolders = getCachedFolders(session.user.id);
         const cachedDocuments = getCachedDocuments(session.user.id);
+        // The Free-plan limit needs the plan; the on-device copy of it
+        // keeps Pro accounts from being treated as Free while offline.
+        setSubscriptionStatus(
+          getCachedSubscription(session.user.id)?.status ?? null,
+        );
         if (cachedDocuments.length > 0) {
           setLoadError(false);
           setIsShowingCache(true);
@@ -184,13 +191,13 @@ export default function DocumentsScreen() {
           supabase
             .from("documents")
             .select(
-              "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color",
+              "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at",
             )
             .eq("user_id", session.user.id)
             .order("created_at", { ascending: false }),
           supabase
             .from("subscriptions")
-            .select("status")
+            .select("status, trial_ends_at, current_period_end")
             .eq("user_id", session.user.id)
             .single(),
         ]);
@@ -205,6 +212,9 @@ export default function DocumentsScreen() {
         // hard error, since that's the whole point of caching it.
         const cachedFolders = getCachedFolders(session.user.id);
         const cachedDocuments = getCachedDocuments(session.user.id);
+        setSubscriptionStatus(
+          getCachedSubscription(session.user.id)?.status ?? null,
+        );
         if (!isOnline && cachedDocuments.length > 0) {
           setLoadError(false);
           setIsShowingCache(true);
@@ -222,6 +232,10 @@ export default function DocumentsScreen() {
         setSubscriptionStatus(subscriptionResult.data?.status ?? null);
         cacheFolders(session.user.id, foldersResult.data ?? []);
         cacheDocuments(session.user.id, documentsResult.data ?? []);
+        // Kept for the Free-plan limit check while offline.
+        if (!subscriptionResult.error) {
+          cacheSubscription(session.user.id, subscriptionResult.data);
+        }
       }
 
       isRefresh ? setIsRefreshing(false) : setIsLoading(false);

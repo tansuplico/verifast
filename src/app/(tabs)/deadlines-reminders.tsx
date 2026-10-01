@@ -2,7 +2,13 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
@@ -140,6 +146,7 @@ export default function DeadlinesRemindersScreen() {
   const { session } = useAuth();
   const isOnline = useIsOnline();
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [reminders, setReminders] = useState<Reminder[]>([]);
 
   // Push Notifications state/toggle comes from the shared hook so this
@@ -218,6 +225,19 @@ export default function DeadlinesRemindersScreen() {
       loadReminders();
     }, [loadReminders]),
   );
+
+  // Pull-to-refresh reuses the same local-first load: it re-reads the
+  // device copy (and the OS's scheduled-notification state) and, when
+  // online, syncs with Supabase. Offline it just re-reads local data and
+  // finishes immediately, so the spinner never hangs.
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await loadReminders();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [loadReminders]);
 
   // A background sync (reconnect, app foreground, a save's own push) can
   // clear "waiting to sync" badges or pull in reminders from another device.
@@ -564,6 +584,12 @@ export default function DeadlinesRemindersScreen() {
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+            />
+          }
         >
           {!isOnline && (
             <OfflineNotice message="You're offline - changes will sync when you're back online" />

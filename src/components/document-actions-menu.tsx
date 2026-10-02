@@ -11,8 +11,10 @@ import {
 import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
-import { supabase } from "@/lib/supabase";
+import { updateDocumentLocal } from "@/lib/offline-db";
+import { requestSync } from "@/lib/sync";
 import { showAlert } from "@/providers/alert-provider";
+import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import type { DocumentRow } from "@/types/documents";
 
@@ -57,6 +59,7 @@ export function DocumentActionsMenu({
   const [newName, setNewName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const { showToast } = useToast();
+  const { session } = useAuth();
 
   useEffect(() => {
     if (document) {
@@ -71,102 +74,66 @@ export function DocumentActionsMenu({
     onClose();
   }
 
-  async function handleRenameSave() {
+  // Rename, move and recolor all save to the device first, so they work
+  // with or without a connection; requestSync pushes the change to
+  // Supabase right away when online (and sync picks it up on reconnect
+  // otherwise).
+  function saveChange(
+    changes: { name?: string; folder_id?: string; icon_color?: string },
+    failureTitle: string,
+    successToast: string,
+    onDone: () => void,
+  ) {
+    if (!document || !session) return;
+    const userId = session.user.id;
+
+    try {
+      updateDocumentLocal(userId, document.id, changes);
+    } catch (error) {
+      console.error("Failed to update document locally", error);
+      showAlert(
+        failureTitle,
+        "Something went wrong saving this change.",
+        undefined,
+        { tone: "danger" },
+      );
+      return;
+    }
+
+    requestSync(userId);
+    showToast(successToast);
+    onDone();
+    onClose();
+  }
+
+  function handleRenameSave() {
     if (!document || !newName.trim()) return;
-    setIsSaving(true);
-
-    const { data, error } = await supabase
-      .from("documents")
-      .update({ name: newName.trim() })
-      .eq("id", document.id)
-      .select();
-
-    setIsSaving(false);
-
-    if (error) {
-      showAlert("Couldn't rename document", error.message, undefined, {
-        tone: "danger",
-      });
-      return;
-    }
-    if (!data || data.length === 0) {
-      showAlert(
-        "Couldn't rename document",
-        "The document wasn't updated — this usually means the update was blocked by a database permission (RLS) rule.",
-        undefined,
-        { tone: "danger" },
-      );
-      return;
-    }
-    showToast("Document renamed");
-    onRenamed();
-    onClose();
+    saveChange(
+      { name: newName.trim() },
+      "Couldn't rename document",
+      "Document renamed",
+      onRenamed,
+    );
   }
 
-  async function handleMoveTo(folderId: string) {
+  function handleMoveTo(folderId: string) {
     if (!document || folderId === document.folder_id) return;
-    setIsSaving(true);
-
-    const { data, error } = await supabase
-      .from("documents")
-      .update({ folder_id: folderId })
-      .eq("id", document.id)
-      .select();
-
-    setIsSaving(false);
-
-    if (error) {
-      showAlert("Couldn't move document", error.message, undefined, {
-        tone: "danger",
-      });
-      return;
-    }
-    if (!data || data.length === 0) {
-      showAlert(
-        "Couldn't move document",
-        "The document wasn't moved — this usually means the update was blocked by a database permission (RLS) rule.",
-        undefined,
-        { tone: "danger" },
-      );
-      return;
-    }
-
-    showToast("Document moved");
-    onMoved();
-    onClose();
+    saveChange(
+      { folder_id: folderId },
+      "Couldn't move document",
+      "Document moved",
+      onMoved,
+    );
   }
 
-  async function handleColorSelect(color: string) {
+  function handleColorSelect(color: string) {
     if (!document) return;
-    setIsSaving(true);
-
-    const { data, error } = await supabase
-      .from("documents")
-      .update({ icon_color: color })
-      .eq("id", document.id)
-      .select();
-
-    setIsSaving(false);
-
-    if (error) {
-      showAlert("Couldn't update icon color", error.message, undefined, {
-        tone: "danger",
-      });
-      return;
-    }
-    if (!data || data.length === 0) {
-      showAlert(
-        "Couldn't update icon color",
-        "The document wasn't updated — this usually means the update was blocked by a database permission (RLS) rule.",
-        undefined,
-        { tone: "danger" },
-      );
-      return;
-    }
-
-    showToast("Color updated");
-    onColorChanged();
-    onClose();
+    saveChange(
+      { icon_color: color },
+      "Couldn't update icon color",
+      "Color updated",
+      onColorChanged,
+    );
   }
 
   if (!document) return null;

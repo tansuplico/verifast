@@ -54,3 +54,19 @@ export async function cacheDocumentFileForOffline(
     console.error("Failed to cache document for offline use", error);
   }
 }
+
+// Removes the local copy of a document's file (and its record) - used when
+// the document itself is deleted, so a deleted document's file doesn't sit
+// on the phone taking up space. Best-effort: a missing file is fine.
+export function removeOfflineFile(documentId: string) {
+  const uri = getLocalFileUri(documentId);
+  if (uri) {
+    try {
+      const file = new File(uri);
+      if (file.exists) file.delete();
+    } catch (error) {
+      console.error("Failed to delete offline file", error);
+    }
+  }
+  forgetDownloadedFile(documentId);
+}

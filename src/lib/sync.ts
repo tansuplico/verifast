@@ -1,32 +1,38 @@
 import { checkIsOnline } from "@/hooks/use-network-status";
 import { getDeviceId } from "@/lib/device-id";
 import {
-  cacheDocuments,
   cacheFolders,
   cacheProfile,
   cacheSubscription,
+  discardDocument,
   discardReminder,
   getPendingAcademicInfo,
   getPendingCalendarSyncs,
+  getPendingDocuments,
   getPendingReminders,
   getPendingRequests,
   markAcademicInfoSynced,
   markCalendarSyncSynced,
+  markDocumentSynced,
   markReminderSynced,
   markRequestSynced,
   mergeServerAcademicInfo,
   mergeServerCalendarSyncs,
+  mergeServerDocuments,
   mergeServerReminders,
   mergeServerRequests,
   removeDeletedAcademicInfo,
   removeDeletedCalendarSync,
+  removeDeletedDocument,
   removeDeletedReminder,
   removeDeletedRequest,
   type PendingAcademicInfoRow,
   type PendingCalendarSyncRow,
+  type PendingDocumentRow,
   type PendingReminderRow,
   type PendingRequestRow,
 } from "@/lib/offline-db";
+import { removeOfflineFile } from "@/lib/offline-files";
 import { supabase } from "@/lib/supabase";
 
 // Pushes changes made on this device (offline or not) up to Supabase, then
@@ -45,15 +51,17 @@ type FullSyncResult = {
   academicInfoOk: boolean;
   requestsOk: boolean;
   remindersOk: boolean;
-  // Profile, plan, folders and documents - read-only copies, nothing to push.
+  documentsOk: boolean;
+  // Profile, plan and folders - read-only copies, nothing to push.
   accountOk: boolean;
 };
 
-function allOk(result: FullSyncResult) {
+export function allSyncOk(result: FullSyncResult) {
   return (
     result.academicInfoOk &&
     result.requestsOk &&
     result.remindersOk &&
+    result.documentsOk &&
     result.accountOk
   );
 }
@@ -338,42 +346,39 @@ async function syncRemindersTable(userId: string): Promise<boolean> {
   return ok;
 }
 
-// --- Account data (read-only: profile, plan, folders, documents) ---
+// --- Account data (read-only: profile, plan, folders) ---
 //
 // Nothing here is edited offline, so there's nothing to push - this just
 // keeps the on-device copies fresh so Home, Profile and the Free-plan
-// check can run without a connection. Documents and folders replace the
-// cache wholesale, exactly like the Documents screen's own load does.
+// check can run without a connection. Folders replace the cache wholesale;
+// documents have their own table sync below because they can be edited
+// offline.
 
 export async function refreshAccountData(userId: string): Promise<boolean> {
   if (!(await checkIsOnline())) return false;
 
   let ok = true;
 
-  const [profileResult, subscriptionResult, foldersResult, documentsResult] =
-    await Promise.all([
-      supabase
-        .from("profiles")
-        .select("full_name, student_id, program, avatar_url")
-        .eq("id", userId)
-        .maybeSingle(),
-      supabase
-        .from("subscriptions")
-        .select("status, trial_ends_at, current_period_end")
-        .eq("user_id", userId)
-        .maybeSingle(),
-      supabase
-        .from("folders")
-        .select("id, category, name")
-        .eq("user_id", userId),
-      supabase
-        .from("documents")
-        .select(
-          "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at",
-        )
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false }),
-    ]);
+  const [profileResult, subscriptionResult, foldersResult] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("full_name, student_id, program, avatar_url")
+      .eq("id", userId)
+      .maybeSingle(),
+    supabase
+      .from("subscriptions")
+      .select("status, trial_ends_at, current_period_end")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabase.from("folders").select("id, category, name").eq("user_id", userId),
+    supabase
+      .from("documents")
+      .select(
+        "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at",
+      )
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false }),
+  ]);
 
   if (profileResult.error) {
     ok = false;
@@ -392,18 +397,90 @@ export async function refreshAccountData(userId: string): Promise<boolean> {
     cacheSubscription(userId, subscriptionResult.data);
   }
 
-  if (foldersResult.error || documentsResult.error) {
+  if (foldersResult.error) {
     ok = false;
-    console.warn(
-      "[sync] failed to pull documents",
-      foldersResult.error ?? documentsResult.error,
-    );
+    console.warn("[sync] failed to pull folders", foldersResult.error);
   } else {
     cacheFolders(userId, foldersResult.data ?? []);
-    cacheDocuments(userId, documentsResult.data ?? []);
   }
 
   notifyListeners();
+  return ok;
+}
+
+// --- Documents ---
+//
+// Rename, move and recolor are updates; delete removes the stored file and
+// then the row. (Adding a document is still online-only and goes straight
+// to Supabase - it shows up here on the next pull.)
+
+async function pushDocumentRow(row: PendingDocumentRow) {
+  if (row.sync_status === "pending_delete") {
+    // File first: if this fails the row stays pending and the whole delete
+    // retries, instead of leaving a file with no row pointing at it.
+    // Removing a file that's already gone isn't an error.
+    if (row.file_path) {
+      const { error: storageError } = await supabase.storage
+        .from("documents")
+        .remove([row.file_path]);
+      if (storageError) return storageError;
+    }
+    const { error } = await supabase
+      .from("documents")
+      .delete()
+      .eq("id", row.id);
+    if (error) return error;
+    removeDeletedDocument(row.id, row.local_rev);
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("documents")
+    .update({
+      name: row.name,
+      folder_id: row.folder_id,
+      icon_color: row.icon_color,
+    })
+    .eq("id", row.id)
+    .select("id");
+  if (error) return error;
+
+  if (!data || data.length === 0) {
+    // Nothing matched: the document was deleted on another device, so drop
+    // the local copy (and its downloaded file) instead of retrying forever.
+    removeOfflineFile(row.id);
+    discardDocument(row.id, row.local_rev);
+    return null;
+  }
+  markDocumentSynced(row.id, row.local_rev);
+  return null;
+}
+
+async function syncDocumentsTable(userId: string): Promise<boolean> {
+  let ok = true;
+
+  for (const row of getPendingDocuments(userId)) {
+    const error = await pushDocumentRow(row);
+    if (!error) continue;
+
+    ok = false;
+    console.warn("[sync] failed to push document", row.id, error);
+    if (!(await checkIsOnline())) return false;
+  }
+
+  const { data, error } = await supabase
+    .from("documents")
+    .select(
+      "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at",
+    )
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn("[sync] failed to pull documents", error);
+    return false;
+  }
+  mergeServerDocuments(userId, data ?? []);
   return ok;
 }
 
@@ -413,6 +490,7 @@ const NOTHING_SYNCED: FullSyncResult = {
   academicInfoOk: false,
   requestsOk: false,
   remindersOk: false,
+  documentsOk: false,
   accountOk: false,
 };
 
@@ -425,6 +503,7 @@ async function runSync(userId: string): Promise<FullSyncResult> {
   let academicInfoOk = false;
   let requestsOk = false;
   let remindersOk = false;
+  let documentsOk = false;
   let accountOk = false;
 
   try {
@@ -446,13 +525,19 @@ async function runSync(userId: string): Promise<FullSyncResult> {
   }
   if (suspended) return NOTHING_SYNCED;
   try {
+    documentsOk = await syncDocumentsTable(userId);
+  } catch (error) {
+    console.warn("[sync] unexpected documents error", error);
+  }
+  if (suspended) return NOTHING_SYNCED;
+  try {
     accountOk = await refreshAccountData(userId);
   } catch (error) {
     console.warn("[sync] unexpected account data error", error);
   }
 
   notifyListeners();
-  return { academicInfoOk, requestsOk, remindersOk, accountOk };
+  return { academicInfoOk, requestsOk, remindersOk, documentsOk, accountOk };
 }
 
 // One sync at a time. A forced request that arrives mid-sync (say, the user
@@ -511,7 +596,7 @@ export function syncAll(
     !options.force &&
     lastRun &&
     lastRun.userId === userId &&
-    allOk(lastRun.result) &&
+    allSyncOk(lastRun.result) &&
     Date.now() - lastRun.finishedAt < COOLDOWN_MS
   ) {
     return Promise.resolve(lastRun.result);
@@ -522,6 +607,7 @@ export function syncAll(
       academicInfoOk: true,
       requestsOk: true,
       remindersOk: true,
+      documentsOk: true,
       accountOk: true,
     };
     try {
@@ -533,6 +619,7 @@ export function syncAll(
         (result.academicInfoOk ||
           result.requestsOk ||
           result.remindersOk ||
+          result.documentsOk ||
           result.accountOk)
       );
       lastRun = { userId, finishedAt: Date.now(), result };
@@ -561,6 +648,15 @@ export async function syncRequests(
 ): Promise<SyncResult> {
   const result = await syncAll(userId, { force });
   return { ok: result.requestsOk };
+}
+
+export async function syncDocuments(
+  userId: string,
+  force = false,
+): Promise<SyncResult> {
+  const result = await syncAll(userId, { force });
+  // The Documents screen shows folders too, which come from account data.
+  return { ok: result.documentsOk && result.accountOk };
 }
 
 export async function syncReminders(

@@ -1,5 +1,6 @@
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
+import { checkIsOnline } from "@/hooks/use-network-status";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -220,6 +221,19 @@ export function AddDocumentModal({
     if (!pickedFile || !documentName.trim() || !selectedFolderId || !userId) {
       return;
     }
+
+    // Uploading a file still needs a connection - say so plainly instead of
+    // surfacing a raw network error.
+    if (!(await checkIsOnline())) {
+      showAlert(
+        "You're offline",
+        "Uploading a document needs an internet connection. Try again once you're back online.",
+        undefined,
+        { tone: "danger" },
+      );
+      return;
+    }
+
     setIsUploading(true);
     try {
       const arrayBuffer = pickedFile.base64

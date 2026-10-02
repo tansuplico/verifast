@@ -9,4 +9,11 @@ export type DocumentRow = {
   icon_color: string | null;
   // Only fetched where it's needed (Home's "Recently Accessed" ordering).
   updated_at?: string | null;
+  // Set for rows read from the local database; says whether a change on
+  // this device is still waiting to reach Supabase.
+  sync_status?:
+    | "synced"
+    | "pending_create"
+    | "pending_update"
+    | "pending_delete";
 };

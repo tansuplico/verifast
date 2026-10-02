@@ -31,7 +31,7 @@ import {
   getCachedRequests,
   getUpcomingReminders,
 } from "@/lib/offline-db";
-import { subscribeToSync, syncAll } from "@/lib/sync";
+import { allSyncOk, subscribeToSync, syncAll } from "@/lib/sync";
 import { useAuth } from "@/providers/auth-provider";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -195,11 +195,7 @@ export default function HomeScreen() {
       }
 
       let result = await syncAll(userId, { force: isRefresh });
-      let ok =
-        result.accountOk &&
-        result.academicInfoOk &&
-        result.requestsOk &&
-        result.remindersOk;
+      let ok = allSyncOk(result);
 
       // A just-issued token's `iat` is the exact sign-in instant, which is
       // precisely when a few seconds of clock skew between Supabase's Auth
@@ -211,11 +207,7 @@ export default function HomeScreen() {
       if (!ok && !hadLocalData) {
         await sleep(CLOCK_SKEW_RETRY_DELAY_MS);
         result = await syncAll(userId, { force: true });
-        ok =
-          result.accountOk &&
-          result.academicInfoOk &&
-          result.requestsOk &&
-          result.remindersOk;
+        ok = allSyncOk(result);
       }
 
       const hasData = applyLocalData();

@@ -41,7 +41,9 @@ function getDb(): SQLiteDatabase {
         file_size INTEGER,
         created_at TEXT NOT NULL,
         icon_color TEXT,
-        updated_at TEXT
+        updated_at TEXT,
+        sync_status TEXT NOT NULL DEFAULT 'synced',
+        local_rev INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS cached_academic_info (
@@ -186,17 +188,46 @@ export type PendingAcademicInfoRow = CachedAcademicInfoRow & {
 
 // --- Documents + folders (Documents screen, Search) ---
 
-export function cacheDocuments(userId: string, documents: DocumentRow[]) {
+const DOCUMENT_COLUMNS =
+  "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at, sync_status, local_rev";
+
+// Documents are local-first like academic info, requests and reminders:
+// this table is what the screens show, sync_status tracks what still has to
+// be pushed, and local_rev guards against marking a row synced when it was
+// edited again mid-push. Merges leave rows with pending changes alone.
+export function mergeServerDocuments(
+  userId: string,
+  serverRows: DocumentRow[],
+) {
   const database = getDb();
+  const serverIds = new Set(serverRows.map((row) => row.id));
+
   database.withTransactionSync(() => {
-    database.runSync("DELETE FROM cached_documents WHERE user_id = ?", [
-      userId,
-    ]);
-    for (const doc of documents) {
+    const syncedLocal = database.getAllSync<{ id: string }>(
+      "SELECT id FROM cached_documents WHERE user_id = ? AND sync_status = 'synced'",
+      [userId],
+    );
+    for (const { id } of syncedLocal) {
+      if (!serverIds.has(id)) {
+        database.runSync("DELETE FROM cached_documents WHERE id = ?", [id]);
+      }
+    }
+
+    for (const doc of serverRows) {
       database.runSync(
         `INSERT INTO cached_documents
-          (id, user_id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, user_id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at, sync_status, local_rev)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', 0)
+         ON CONFLICT(id) DO UPDATE SET
+           folder_id = excluded.folder_id,
+           name = excluded.name,
+           file_path = excluded.file_path,
+           mime_type = excluded.mime_type,
+           file_size = excluded.file_size,
+           created_at = excluded.created_at,
+           icon_color = excluded.icon_color,
+           updated_at = excluded.updated_at
+         WHERE cached_documents.sync_status = 'synced'`,
         [
           doc.id,
           userId,
@@ -214,11 +245,121 @@ export function cacheDocuments(userId: string, documents: DocumentRow[]) {
   });
 }
 
+// What the screens show: everything except documents waiting to be deleted
+// remotely.
 export function getCachedDocuments(userId: string): DocumentRow[] {
   return getDb().getAllSync<DocumentRow>(
-    "SELECT id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at FROM cached_documents WHERE user_id = ? ORDER BY created_at DESC",
+    `SELECT ${DOCUMENT_COLUMNS} FROM cached_documents
+     WHERE user_id = ? AND sync_status != 'pending_delete'
+     ORDER BY created_at DESC`,
     [userId],
   );
+}
+
+type DocumentChanges = {
+  name?: string;
+  folder_id?: string;
+  icon_color?: string;
+};
+
+// Rename / move / recolor, saved to the device only.
+export function updateDocumentLocal(
+  userId: string,
+  id: string,
+  changes: DocumentChanges,
+) {
+  const database = getDb();
+  const existing = database.getFirstSync<{ sync_status: SyncStatus }>(
+    "SELECT sync_status FROM cached_documents WHERE id = ? AND user_id = ?",
+    [id, userId],
+  );
+  if (!existing) return;
+
+  const nextStatus: SyncStatus =
+    existing.sync_status === "pending_create"
+      ? "pending_create"
+      : "pending_update";
+
+  database.runSync(
+    `UPDATE cached_documents
+     SET name = COALESCE(?, name),
+         folder_id = COALESCE(?, folder_id),
+         icon_color = COALESCE(?, icon_color),
+         sync_status = ?, local_rev = local_rev + 1
+     WHERE id = ? AND user_id = ?`,
+    [
+      changes.name ?? null,
+      changes.folder_id ?? null,
+      changes.icon_color ?? null,
+      nextStatus,
+      id,
+      userId,
+    ],
+  );
+}
+
+export function deleteDocumentLocal(userId: string, id: string) {
+  const database = getDb();
+  const existing = database.getFirstSync<{ sync_status: SyncStatus }>(
+    "SELECT sync_status FROM cached_documents WHERE id = ? AND user_id = ?",
+    [id, userId],
+  );
+  if (!existing) return;
+
+  if (existing.sync_status === "pending_create") {
+    // Never reached the server, so there's nothing to delete remotely.
+    database.runSync("DELETE FROM cached_documents WHERE id = ?", [id]);
+    return;
+  }
+
+  database.runSync(
+    `UPDATE cached_documents
+     SET sync_status = 'pending_delete', local_rev = local_rev + 1
+     WHERE id = ?`,
+    [id],
+  );
+}
+
+export type PendingDocumentRow = DocumentRow & {
+  sync_status: SyncStatus;
+  local_rev: number;
+};
+
+export function getPendingDocuments(userId: string): PendingDocumentRow[] {
+  return getDb().getAllSync<PendingDocumentRow>(
+    `SELECT ${DOCUMENT_COLUMNS} FROM cached_documents
+     WHERE user_id = ? AND sync_status != 'synced'
+     ORDER BY CASE sync_status
+       WHEN 'pending_create' THEN 0
+       WHEN 'pending_update' THEN 1
+       ELSE 2
+     END, created_at ASC`,
+    [userId],
+  );
+}
+
+export function markDocumentSynced(id: string, localRev: number) {
+  getDb().runSync(
+    "UPDATE cached_documents SET sync_status = 'synced' WHERE id = ? AND local_rev = ?",
+    [id, localRev],
+  );
+}
+
+export function removeDeletedDocument(id: string, localRev: number) {
+  getDb().runSync(
+    "DELETE FROM cached_documents WHERE id = ? AND local_rev = ? AND sync_status = 'pending_delete'",
+    [id, localRev],
+  );
+}
+
+// For an edit whose document turned out to be deleted elsewhere: drop the
+// local copy instead of retrying forever.
+export function discardDocument(id: string, localRev: number) {
+  getDb().runSync(
+    "DELETE FROM cached_documents WHERE id = ? AND local_rev = ?",
+    [id, localRev],
+  );
+  getDb().runSync("DELETE FROM downloaded_files WHERE document_id = ?", [id]);
 }
 
 export function cacheFolders(userId: string, folders: CachedFolder[]) {
@@ -245,7 +386,8 @@ export function searchCachedDocuments(userId: string, query: string) {
   return getDb().getAllSync<DocumentRow>(
     `SELECT id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color
      FROM cached_documents
-     WHERE user_id = ? AND name LIKE ? COLLATE NOCASE
+     WHERE user_id = ? AND sync_status != 'pending_delete'
+       AND name LIKE ? COLLATE NOCASE
      ORDER BY created_at DESC LIMIT 8`,
     [userId, `%${query}%`],
   );
@@ -1103,7 +1245,7 @@ export function getCachedDocumentSummary(userId: string): {
 } {
   const database = getDb();
   const countRow = database.getFirstSync<{ total: number }>(
-    "SELECT COUNT(*) AS total FROM cached_documents WHERE user_id = ?",
+    "SELECT COUNT(*) AS total FROM cached_documents WHERE user_id = ? AND sync_status != 'pending_delete'",
     [userId],
   );
   const recent = database.getAllSync<{
@@ -1113,7 +1255,8 @@ export function getCachedDocumentSummary(userId: string): {
     opened_at: string;
   }>(
     `SELECT id, name, mime_type, COALESCE(updated_at, created_at) AS opened_at
-     FROM cached_documents WHERE user_id = ?
+     FROM cached_documents
+     WHERE user_id = ? AND sync_status != 'pending_delete'
      ORDER BY opened_at DESC LIMIT 3`,
     [userId],
   );

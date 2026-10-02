@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Linking,
   Pressable,
@@ -27,9 +27,8 @@ import { OfflineNotice } from "@/components/offline-notice";
 import { SkeletonBlock } from "@/components/skeleton";
 import { useIsOnline } from "@/hooks/use-network-status";
 import {
-  cacheDocuments,
-  cacheFolders,
   cacheSubscription,
+  deleteDocumentLocal,
   getCachedDocuments,
   getCachedFolders,
   getCachedSubscription,
@@ -37,7 +36,9 @@ import {
 import {
   cacheDocumentFileForOffline,
   getOfflineFileUri,
+  removeOfflineFile,
 } from "@/lib/offline-files";
+import { requestSync, subscribeToSync, syncDocuments } from "@/lib/sync";
 import { useToast } from "@/providers/toast-provider";
 import type { DocumentRow } from "@/types/documents";
 
@@ -148,99 +149,75 @@ export default function DocumentsScreen() {
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [actionsDoc, setActionsDoc] = useState<DocumentRow | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [isShowingCache, setIsShowingCache] = useState(false);
   const isOnline = useIsOnline();
   const [subscriptionStatus, setSubscriptionStatus] =
     useState<SubscriptionStatus | null>(null);
 
-  const loadDocuments = useCallback(
-    async (isRefresh = false) => {
-      if (!session) return;
-      isRefresh ? setIsRefreshing(true) : setIsLoading(true);
+  // Local-first: the list always comes from the on-device database, so it
+  // looks and behaves the same with or without a connection. Syncing with
+  // Supabase happens around it (see sync.ts), never in front of it.
+  const reloadFromLocal = useCallback(() => {
+    if (!session) return;
+    const userId = session.user.id;
+    setFolders(getCachedFolders(userId) as FolderRow[]);
+    setDocuments(getCachedDocuments(userId));
+    // The Free-plan limit needs the plan; the on-device copy of it keeps
+    // Pro accounts from being treated as Free while offline.
+    setSubscriptionStatus(getCachedSubscription(userId)?.status ?? null);
+  }, [session]);
 
-      // Known offline: skip the live fetch entirely rather than let it run,
-      // time out/fail with a host-resolution error, and log that as if it
-      // were a real problem. Same pattern as Search's debounced query.
+  // `refresh` is pull-to-refresh (shows the spinner); `force` skips the
+  // short sync cooldown, for when something just changed on the server
+  // side of things (a finished upload) and has to be pulled right away.
+  const loadDocuments = useCallback(
+    async (options: { refresh?: boolean; force?: boolean } = {}) => {
+      if (!session) return;
+      const userId = session.user.id;
+      const refresh = options.refresh ?? false;
+
+      // Show what's on the device right away. Skeletons only appear when
+      // there is nothing local yet (first ever load while online).
+      reloadFromLocal();
+      const hadLocalData =
+        getCachedDocuments(userId).length > 0 ||
+        getCachedFolders(userId).length > 0;
+      if (hadLocalData) setIsLoading(false);
+      if (refresh) setIsRefreshing(true);
+
       if (!isOnline) {
-        const cachedFolders = getCachedFolders(session.user.id);
-        const cachedDocuments = getCachedDocuments(session.user.id);
-        // The Free-plan limit needs the plan; the on-device copy of it
-        // keeps Pro accounts from being treated as Free while offline.
-        setSubscriptionStatus(
-          getCachedSubscription(session.user.id)?.status ?? null,
-        );
-        if (cachedDocuments.length > 0) {
-          setLoadError(false);
-          setIsShowingCache(true);
-          setFolders(cachedFolders as FolderRow[]);
-          setDocuments(cachedDocuments);
-        } else {
-          setLoadError(true);
-          setIsShowingCache(false);
-        }
-        isRefresh ? setIsRefreshing(false) : setIsLoading(false);
+        setLoadError(false);
+        setIsLoading(false);
+        setIsRefreshing(false);
         return;
       }
 
-      const [foldersResult, documentsResult, subscriptionResult] =
-        await Promise.all([
-          supabase
-            .from("folders")
-            .select("id, category, name")
-            .eq("user_id", session.user.id),
-          supabase
-            .from("documents")
-            .select(
-              "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at",
-            )
-            .eq("user_id", session.user.id)
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("subscriptions")
-            .select("status, trial_ends_at, current_period_end")
-            .eq("user_id", session.user.id)
-            .single(),
-        ]);
+      // The plan is fetched live (not just from the synced copy) so an
+      // upgrade is reflected the moment this screen is opened.
+      const [syncResult, subscriptionResult] = await Promise.all([
+        syncDocuments(userId, refresh || options.force === true),
+        supabase
+          .from("subscriptions")
+          .select("status, trial_ends_at, current_period_end")
+          .eq("user_id", userId)
+          .maybeSingle(),
+      ]);
 
-      if (foldersResult.error || documentsResult.error) {
-        console.error(
-          "Failed to load documents",
-          foldersResult.error ?? documentsResult.error,
-        );
-        // Same fallback pattern as Academic Info: offline (or a fetch that
-        // failed while offline) shows the last cached list rather than a
-        // hard error, since that's the whole point of caching it.
-        const cachedFolders = getCachedFolders(session.user.id);
-        const cachedDocuments = getCachedDocuments(session.user.id);
-        setSubscriptionStatus(
-          getCachedSubscription(session.user.id)?.status ?? null,
-        );
-        if (!isOnline && cachedDocuments.length > 0) {
-          setLoadError(false);
-          setIsShowingCache(true);
-          setFolders(cachedFolders as FolderRow[]);
-          setDocuments(cachedDocuments);
-        } else {
-          setLoadError(true);
-          setIsShowingCache(false);
-        }
-      } else {
-        setLoadError(false);
-        setIsShowingCache(false);
-        setFolders(foldersResult.data ?? []);
-        setDocuments(documentsResult.data ?? []);
-        setSubscriptionStatus(subscriptionResult.data?.status ?? null);
-        cacheFolders(session.user.id, foldersResult.data ?? []);
-        cacheDocuments(session.user.id, documentsResult.data ?? []);
-        // Kept for the Free-plan limit check while offline.
-        if (!subscriptionResult.error) {
-          cacheSubscription(session.user.id, subscriptionResult.data);
-        }
+      if (!subscriptionResult.error) {
+        cacheSubscription(userId, subscriptionResult.data);
       }
+      reloadFromLocal();
 
-      isRefresh ? setIsRefreshing(false) : setIsLoading(false);
+      // Only a failed sync with nothing on the device is worth an error
+      // screen; otherwise the local list is still perfectly usable.
+      setLoadError(
+        !syncResult.ok &&
+          getCachedDocuments(userId).length === 0 &&
+          getCachedFolders(userId).length === 0,
+      );
+      setIsLoading(false);
+      setIsRefreshing(false);
     },
-    [session, isOnline],
+    [session, isOnline, reloadFromLocal],
   );
 
   const handleDocPress = useCallback(
@@ -315,6 +292,9 @@ export default function DocumentsScreen() {
 
   const handleDeleteDocument = useCallback(
     (doc: DocumentRow) => {
+      if (!session) return;
+      const userId = session.user.id;
+
       showAlert(
         "Delete document",
         `Are you sure you want to delete "${doc.name}"? This can't be undone.`,
@@ -323,47 +303,32 @@ export default function DocumentsScreen() {
           {
             text: "Delete",
             style: "destructive",
-            onPress: async () => {
-              if (doc.file_path) {
-                const { error: storageError } = await supabase.storage
-                  .from("documents")
-                  .remove([doc.file_path]);
-                if (storageError) {
-                  showAlert(
-                    "Couldn't delete file",
-                    storageError.message,
-                    undefined,
-                    {
-                      tone: "danger",
-                    },
-                  );
-                  return;
-                }
-              }
-              const { error: dbError } = await supabase
-                .from("documents")
-                .delete()
-                .eq("id", doc.id);
-              if (dbError) {
+            onPress: () => {
+              // Deleted on the device first; sync removes the stored file
+              // and the row from Supabase when a connection is available.
+              try {
+                deleteDocumentLocal(userId, doc.id);
+                removeOfflineFile(doc.id);
+              } catch (error) {
+                console.error("Failed to delete document locally", error);
                 showAlert(
                   "Couldn't delete document",
-                  dbError.message,
+                  "Something went wrong deleting this document.",
                   undefined,
-                  {
-                    tone: "danger",
-                  },
+                  { tone: "danger" },
                 );
                 return;
               }
+              requestSync(userId);
               showToast("Document deleted");
-              loadDocuments();
+              reloadFromLocal();
             },
           },
         ],
         { icon: "trash-outline" },
       );
     },
-    [loadDocuments],
+    [session, reloadFromLocal, showToast],
   );
 
   useFocusEffect(
@@ -371,6 +336,10 @@ export default function DocumentsScreen() {
       loadDocuments();
     }, [loadDocuments]),
   );
+
+  // A background sync (reconnect, app foreground, a change's own push) can
+  // clear "waiting to sync" badges or pull in changes from another device.
+  useEffect(() => subscribeToSync(reloadFromLocal), [reloadFromLocal]);
 
   const activeFolder = useMemo(
     () => folders.find((folder) => folder.id === activeFolderId) ?? null,
@@ -466,7 +435,7 @@ export default function DocumentsScreen() {
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
-            onRefresh={() => loadDocuments(true)}
+            onRefresh={() => loadDocuments({ refresh: true })}
           />
         }
       >
@@ -528,7 +497,9 @@ export default function DocumentsScreen() {
           ALL FILES
         </ThemedText>
 
-        {isShowingCache && filteredDocuments.length > 0 && <OfflineNotice />}
+        {!isOnline && (
+          <OfflineNotice message="You're offline - changes will sync when you're back online" />
+        )}
 
         {isLoading &&
           Array.from({ length: 5 }).map((_, i) => (
@@ -538,14 +509,7 @@ export default function DocumentsScreen() {
         {!isLoading &&
           filteredDocuments.length === 0 &&
           (loadError ? (
-            <LoadErrorState
-              message={
-                isOnline
-                  ? undefined
-                  : "You're offline and don't have anything saved yet."
-              }
-              onRetry={() => loadDocuments()}
-            />
+            <LoadErrorState onRetry={() => loadDocuments()} />
           ) : (
             <ThemedText type="small" style={styles.emptyText}>
               {searchQuery
@@ -588,6 +552,14 @@ export default function DocumentsScreen() {
                   {formatShortDate(doc.created_at)}
                 </ThemedText>
               </View>
+              {doc.sync_status && doc.sync_status !== "synced" && (
+                <Ionicons
+                  name="cloud-upload-outline"
+                  size={14}
+                  color="#a5a9b1"
+                  accessibilityLabel="Waiting to sync"
+                />
+              )}
               <View style={styles.formatBadge}>
                 <ThemedText type="small" style={styles.formatBadgeText}>
                   {formatBadge(doc.mime_type)}
@@ -649,6 +621,14 @@ export default function DocumentsScreen() {
                   <ThemedText type="small" style={styles.fileSubtext}>
                     {formatFileSize(doc.file_size)}
                   </ThemedText>
+                  {doc.sync_status && doc.sync_status !== "synced" && (
+                    <Ionicons
+                      name="cloud-upload-outline"
+                      size={12}
+                      color="#a5a9b1"
+                      accessibilityLabel="Waiting to sync"
+                    />
+                  )}
                 </View>
               </Pressable>
             ))}
@@ -685,7 +665,7 @@ export default function DocumentsScreen() {
         onClose={() => setIsAddModalVisible(false)}
         folders={folders}
         userId={session?.user.id}
-        onUploaded={() => loadDocuments()}
+        onUploaded={() => loadDocuments({ force: true })}
       />
 
       <DocumentPreviewModal
@@ -703,9 +683,9 @@ export default function DocumentsScreen() {
         document={actionsDoc}
         folders={folders}
         onClose={() => setActionsDoc(null)}
-        onRenamed={() => loadDocuments()}
-        onMoved={() => loadDocuments()}
-        onColorChanged={() => loadDocuments()} // NEW
+        onRenamed={reloadFromLocal}
+        onMoved={reloadFromLocal}
+        onColorChanged={reloadFromLocal}
         onDeleteRequested={handleDeleteDocument}
       />
     </SafeAreaView>

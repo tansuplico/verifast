@@ -86,6 +86,22 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { session, signOut } = useAuth();
   const isOnline = useIsOnline();
+
+  // Two-step logout: the row only opens this confirmation - nothing is
+  // signed out until "Log Out" is pressed inside the alert. Signing out
+  // also clears this device's 2FA trust, so the message warns that the
+  // next sign-in will ask for a verification code again.
+  const confirmSignOut = useCallback(() => {
+    showAlert(
+      "Log out?",
+      "Are you sure you want to log out? You'll need to sign in again, and may be asked for a verification code.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Log Out", style: "destructive", onPress: () => signOut() },
+      ],
+      { tone: "warning", icon: "log-out-outline" },
+    );
+  }, [signOut]);
   const [isLoading, setIsLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(
@@ -334,7 +350,7 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
 
-          <Pressable onPress={signOut}>
+          <Pressable onPress={confirmSignOut}>
             <View style={styles.logoutRow}>
               <Ionicons name="log-out-outline" size={20} color="#dc2626" />
               <ThemedText type="smallBold" style={styles.logoutText}>

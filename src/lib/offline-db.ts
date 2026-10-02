@@ -1167,3 +1167,60 @@ export function searchCachedAcademicInfo(userId: string, query: string) {
   );
   return rows.map(toAcademicInfoRow);
 }
+
+// --- Account deletion cleanup ------------------------------------------
+// Used only when the user deletes their account: everything this device
+// holds for them has to go, not just the signed-in session. Two steps on
+// purpose - the caller needs the local file paths and calendar event ids
+// *before* the rows that reference them are wiped.
+
+export function getLocalArtifactsForUser(userId: string): {
+  fileUris: string[];
+  calendarEventIds: string[];
+} {
+  // downloaded_files and cached_calendar_syncs have no user_id column of
+  // their own, so they're tied to the user through the document / reminder
+  // they point at.
+  const files = getDb().getAllSync<{ local_uri: string }>(
+    `SELECT local_uri FROM downloaded_files
+     WHERE document_id IN (SELECT id FROM cached_documents WHERE user_id = ?)`,
+    [userId],
+  );
+  const events = getDb().getAllSync<{ calendar_event_id: string }>(
+    `SELECT calendar_event_id FROM cached_calendar_syncs
+     WHERE reminder_id IN (SELECT id FROM cached_reminders WHERE user_id = ?)`,
+    [userId],
+  );
+  return {
+    fileUris: files.map((row) => row.local_uri),
+    calendarEventIds: events.map((row) => row.calendar_event_id),
+  };
+}
+
+export function wipeCachedDataForUser(userId: string) {
+  const database = getDb();
+  database.withTransactionSync(() => {
+    // Child rows first - these two are keyed through their parent rows.
+    database.runSync(
+      `DELETE FROM downloaded_files
+       WHERE document_id IN (SELECT id FROM cached_documents WHERE user_id = ?)`,
+      [userId],
+    );
+    database.runSync(
+      `DELETE FROM cached_calendar_syncs
+       WHERE reminder_id IN (SELECT id FROM cached_reminders WHERE user_id = ?)`,
+      [userId],
+    );
+    for (const table of [
+      "cached_documents",
+      "cached_folders",
+      "cached_academic_info",
+      "cached_document_requests",
+      "cached_reminders",
+      "cached_profile",
+      "cached_subscription",
+    ]) {
+      database.runSync(`DELETE FROM ${table} WHERE user_id = ?`, [userId]);
+    }
+  });
+}

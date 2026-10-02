@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { wipeLocalAccountData } from "@/lib/account-cleanup";
 import { cancelAllReminderNotifications } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 
@@ -32,6 +33,7 @@ type AuthContextValue = {
     password: string,
   ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<{ error: string | null }>;
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
   verifyPasswordResetCode: (
     email: string,
@@ -217,6 +219,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await cancelAllReminderNotifications();
 
         await supabase.auth.signOut();
+      },
+      // Permanently deletes the signed-in user's account and data. The
+      // server does the real work (delete-account edge function: removes
+      // their stored files, then the auth user, which cascades through
+      // every table). Only once that succeeds is anything wiped locally -
+      // if the call fails the account is intact, so the device's data must
+      // stay too. The deleted user's access token stays technically valid
+      // until it expires, so we always finish by signing out locally.
+      async deleteAccount() {
+        const userId = session?.user.id;
+        if (!userId) return { error: "You're not signed in." };
+
+        const { error } = await supabase.functions.invoke("delete-account");
+        if (error) {
+          return {
+            error: "Couldn't delete your account. Please try again.",
+          };
+        }
+
+        await wipeLocalAccountData(userId);
+        await setDeviceTrusted(userId, false);
+        setIsPasswordRecovery(false);
+        setNeedsEmailOtpChallenge(false);
+        setPendingOtpEmail(null);
+        await supabase.auth.signOut();
+        return { error: null };
       },
       async requestPasswordReset(email) {
         // No redirectTo - the email carries a 8-digit code, not a link,

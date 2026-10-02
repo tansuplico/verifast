@@ -14,9 +14,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { DeleteAccountModal } from "@/components/delete-account-modal";
 import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { useIsOnline } from "@/hooks/use-network-status";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -35,7 +37,9 @@ export default function SecurityPrivacyScreen() {
     setTwoFactorEnabled,
     linkGoogleIdentity,
     unlinkGoogleIdentity,
+    deleteAccount,
   } = useAuth();
+  const isOnline = useIsOnline();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -56,6 +60,39 @@ export default function SecurityPrivacyScreen() {
   const [unlinkingProvider, setUnlinkingProvider] = useState<string | null>(
     null,
   );
+
+  // Account deletion: the modal is the two-step confirmation; the
+  // subscription lookup only decides whether it mentions lost plan time.
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [hasSubscription, setHasSubscription] = useState(false);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId) return;
+    supabase
+      .from("subscriptions")
+      .select("status")
+      .eq("user_id", userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        setHasSubscription(
+          data?.status === "active" ||
+            data?.status === "trialing" ||
+            data?.status === "past_due",
+        );
+      });
+  }, [session?.user.id]);
+
+  async function handleDeleteAccount() {
+    const { error } = await deleteAccount();
+    if (error) {
+      showAlert("Couldn't delete account", error, undefined, {
+        tone: "danger",
+      });
+      return;
+    }
+    // Success signs the user out, which routes away from this screen.
+  }
 
   async function refreshIdentities() {
     const { data, error } = await supabase.auth.getUserIdentities();
@@ -400,8 +437,40 @@ export default function SecurityPrivacyScreen() {
               </>
             )}
           </View>
+
+          <View style={styles.card}>
+            <ThemedText type="small" style={styles.dangerLabel}>
+              DANGER ZONE
+            </ThemedText>
+            <Pressable
+              onPress={() => setShowDeleteModal(true)}
+              disabled={!isOnline}
+              style={!isOnline && styles.buttonDisabled}
+            >
+              <View style={[styles.controlRow, styles.controlRowLast]}>
+                <View style={styles.controlText}>
+                  <ThemedText type="smallBold" style={styles.unlinkAction}>
+                    Delete Account
+                  </ThemedText>
+                  <ThemedText type="small" style={styles.controlSubtext}>
+                    {isOnline
+                      ? "Permanently erase your account and all your data"
+                      : "Connect to the internet to delete your account"}
+                  </ThemedText>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#c4c8d1" />
+              </View>
+            </Pressable>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <DeleteAccountModal
+        visible={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleDeleteAccount}
+        hasSubscription={hasSubscription}
+      />
     </SafeAreaView>
   );
 }
@@ -449,6 +518,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: Spacing.one,
   },
+  dangerLabel: { color: "#dc2626", letterSpacing: 0.5, fontWeight: "700" },
   identitiesLoader: { paddingVertical: Spacing.two },
   unlinkAction: { color: "#dc2626", fontWeight: "600" },
   fieldGroup: { gap: Spacing.one },

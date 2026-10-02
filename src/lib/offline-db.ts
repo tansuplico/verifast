@@ -152,6 +152,36 @@ function getDb(): SQLiteDatabase {
       );
     }
 
+    // Making documents local-first added sync_status and local_rev to
+    // cached_documents, but CREATE TABLE IF NOT EXISTS won't alter a table
+    // an earlier build already created - so existing installs were missing
+    // both columns ("no such column: sync_status"). The same check runs for
+    // every table that carries sync columns, so an install ends up with the
+    // full set whichever build first created its tables. ADD COLUMN with a
+    // constant default also fills the existing rows, which are all copies of
+    // server data and so correctly 'synced' / revision 0.
+    const syncColumns = [
+      ["sync_status", "TEXT NOT NULL DEFAULT 'synced'"],
+      ["local_rev", "INTEGER NOT NULL DEFAULT 0"],
+    ] as const;
+    for (const table of [
+      "cached_documents",
+      "cached_document_requests",
+      "cached_reminders",
+      "cached_calendar_syncs",
+    ]) {
+      const existingColumns = database.getAllSync<{ name: string }>(
+        `PRAGMA table_info(${table})`,
+      );
+      for (const [column, definition] of syncColumns) {
+        if (!existingColumns.some((c) => c.name === column)) {
+          database.execSync(
+            `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`,
+          );
+        }
+      }
+    }
+
     db = database;
   }
   return db;

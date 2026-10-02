@@ -15,6 +15,7 @@ import {
 import { wipeLocalAccountData } from "@/lib/account-cleanup";
 import { cancelAllReminderNotifications } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
+import { suspendSync } from "@/lib/sync";
 
 type AuthContextValue = {
   session: Session | null;
@@ -231,20 +232,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userId = session?.user.id;
         if (!userId) return { error: "You're not signed in." };
 
-        const { error } = await supabase.functions.invoke("delete-account");
-        if (error) {
-          return {
-            error: "Couldn't delete your account. Please try again.",
-          };
-        }
+        // Hold back background sync for the whole operation, so a sync that
+        // is mid-pull can't write the old rows back after the wipe below.
+        const resumeSync = await suspendSync();
+        try {
+          const { error } = await supabase.functions.invoke("delete-account");
+          if (error) {
+            return {
+              error: "Couldn't delete your account. Please try again.",
+            };
+          }
 
-        await wipeLocalAccountData(userId);
-        await setDeviceTrusted(userId, false);
-        setIsPasswordRecovery(false);
-        setNeedsEmailOtpChallenge(false);
-        setPendingOtpEmail(null);
-        await supabase.auth.signOut();
-        return { error: null };
+          await wipeLocalAccountData(userId);
+          await setDeviceTrusted(userId, false);
+          setIsPasswordRecovery(false);
+          setNeedsEmailOtpChallenge(false);
+          setPendingOtpEmail(null);
+          await supabase.auth.signOut();
+          return { error: null };
+        } finally {
+          resumeSync();
+        }
       },
       async requestPasswordReset(email) {
         // No redirectTo - the email carries a 8-digit code, not a link,

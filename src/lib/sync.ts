@@ -409,14 +409,16 @@ export async function refreshAccountData(userId: string): Promise<boolean> {
 
 // --- Orchestration ---
 
+const NOTHING_SYNCED: FullSyncResult = {
+  academicInfoOk: false,
+  requestsOk: false,
+  remindersOk: false,
+  accountOk: false,
+};
+
 async function runSync(userId: string): Promise<FullSyncResult> {
-  if (!(await checkIsOnline())) {
-    return {
-      academicInfoOk: false,
-      requestsOk: false,
-      remindersOk: false,
-      accountOk: false,
-    };
+  if (suspended || !(await checkIsOnline())) {
+    return NOTHING_SYNCED;
   }
 
   // One table failing (even unexpectedly) never stops the other.
@@ -430,16 +432,19 @@ async function runSync(userId: string): Promise<FullSyncResult> {
   } catch (error) {
     console.warn("[sync] unexpected academic info error", error);
   }
+  if (suspended) return NOTHING_SYNCED;
   try {
     requestsOk = await syncRequestsTable(userId);
   } catch (error) {
     console.warn("[sync] unexpected document requests error", error);
   }
+  if (suspended) return NOTHING_SYNCED;
   try {
     remindersOk = await syncRemindersTable(userId);
   } catch (error) {
     console.warn("[sync] unexpected reminders error", error);
   }
+  if (suspended) return NOTHING_SYNCED;
   try {
     accountOk = await refreshAccountData(userId);
   } catch (error) {
@@ -463,16 +468,40 @@ const COOLDOWN_MS = 15_000;
 
 let inFlight: Promise<FullSyncResult> | null = null;
 let rerunRequested = false;
+let suspended = false;
 let lastRun: {
   userId: string;
   finishedAt: number;
   result: FullSyncResult;
 } | null = null;
 
+// Stops all syncing and waits for a run that is already underway to finish.
+// For account deletion: a sync that is still pulling when the local data is
+// wiped could write the old rows straight back into the database, leaving
+// a deleted user's data on the device. Call the returned function to
+// resume (it must always be called, including after a successful delete,
+// or the next account to sign in on this device would never sync).
+export async function suspendSync(): Promise<() => void> {
+  suspended = true;
+  rerunRequested = false;
+  if (inFlight) {
+    try {
+      await inFlight;
+    } catch {
+      // runSync handles its own errors; nothing to do if it somehow threw.
+    }
+  }
+  return () => {
+    suspended = false;
+  };
+}
+
 export function syncAll(
   userId: string,
   options: { force?: boolean } = {},
 ): Promise<FullSyncResult> {
+  if (suspended) return Promise.resolve(NOTHING_SYNCED);
+
   if (inFlight) {
     if (options.force) rerunRequested = true;
     return inFlight;

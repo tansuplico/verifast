@@ -17,7 +17,6 @@ import {
 } from "@/components/add-reminder-modal";
 import { LoadErrorState } from "@/components/load-error-state";
 import { MonthCalendar } from "@/components/month-calendar";
-import { OfflineNotice } from "@/components/offline-notice";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
@@ -591,10 +590,6 @@ export default function DeadlinesRemindersScreen() {
             />
           }
         >
-          {!isOnline && (
-            <OfflineNotice message="You're offline - changes will sync when you're back online" />
-          )}
-
           <View
             style={[
               styles.summary,

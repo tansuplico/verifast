@@ -12,7 +12,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AddRequestModal } from "@/components/add-request-modal";
 import { LoadErrorState } from "@/components/load-error-state";
-import { OfflineNotice } from "@/components/offline-notice";
 import { RequestActionsMenu } from "@/components/request-actions-menu";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
@@ -240,10 +239,6 @@ export default function RequestedDocsScreen() {
           />
         }
       >
-        {!isOnline && (
-          <OfflineNotice message="You're offline - changes will sync when you're back online" />
-        )}
-
         {readyCount > 0 && (
           <View style={styles.readyBanner}>
             <Ionicons name="cube-outline" size={16} color="#059669" />

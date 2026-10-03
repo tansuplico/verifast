@@ -23,7 +23,6 @@ import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 import { LoadErrorState } from "@/components/load-error-state";
-import { OfflineNotice } from "@/components/offline-notice";
 import { SkeletonBlock } from "@/components/skeleton";
 import { useIsOnline } from "@/hooks/use-network-status";
 import {
@@ -496,10 +495,6 @@ export default function DocumentsScreen() {
         >
           ALL FILES
         </ThemedText>
-
-        {!isOnline && (
-          <OfflineNotice message="You're offline - changes will sync when you're back online" />
-        )}
 
         {isLoading &&
           Array.from({ length: 5 }).map((_, i) => (

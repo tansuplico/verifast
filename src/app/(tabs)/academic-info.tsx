@@ -15,7 +15,6 @@ import {
   type AcademicInfoItem,
 } from "@/components/add-academic-info-modal";
 import { LoadErrorState } from "@/components/load-error-state";
-import { OfflineNotice } from "@/components/offline-notice";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
 import { ViewAcademicInfoModal } from "@/components/view-academic-info-modal";
@@ -208,10 +207,6 @@ export default function AcademicInfoScreen() {
           />
         }
       >
-        {!isOnline && (
-          <OfflineNotice message="You're offline - changes will sync when you're back online" />
-        )}
-
         {isLoading &&
           items.length === 0 &&
           Array.from({ length: 4 }).map((_, i) => (

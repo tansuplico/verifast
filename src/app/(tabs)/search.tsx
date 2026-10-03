@@ -411,8 +411,9 @@ export default function SearchScreen() {
             {!isSearching && hasSearched && (
               <>
                 {isShowingCache &&
+                  isOnline &&
                   (documentResults.length > 0 || infoResults.length > 0) && (
-                    <OfflineNotice />
+                    <OfflineNotice message="Couldn't reach the server - showing saved results" />
                   )}
 
                 <ThemedText

@@ -11,7 +11,6 @@ import {
 } from "react-native";
 
 import { LoadErrorState } from "@/components/load-error-state";
-import { OfflineNotice } from "@/components/offline-notice";
 import { ThemedText } from "@/components/themed-text";
 import {
   CATEGORY_STYLE,
@@ -278,8 +277,6 @@ export default function HomeScreen() {
             </View>
           </View>
         </LinearGradient>
-
-        {!isOnline && <OfflineNotice />}
 
         {loadError && <LoadErrorState onRetry={() => loadHomeData()} />}
 

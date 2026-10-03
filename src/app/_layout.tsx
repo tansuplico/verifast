@@ -8,6 +8,7 @@ import { useColorScheme } from "react-native";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { CrashBoundary } from "@/components/crash-boundary";
+import { OfflinePill } from "@/components/offline-pill";
 import { useOfflineSync } from "@/hooks/use-offline-sync";
 import { reconcileReminderNotifications } from "@/hooks/use-push-notifications-toggle";
 import { configureNotificationHandler } from "@/lib/notifications";
@@ -38,6 +39,7 @@ function RootLayout() {
             <AlertProvider>
               <AnimatedSplashOverlay />
               <RootNavigator />
+              <OfflinePill />
             </AlertProvider>
           </ToastProvider>
         </ThemeProvider>

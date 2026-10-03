@@ -1397,3 +1397,25 @@ export function wipeCachedDataForUser(userId: string) {
     }
   });
 }
+
+// How many local edits are still waiting to reach the server, across every
+// table the user can edit offline. Feeds the offline pill's "N changes will
+// sync later". Calendar syncs are left out on purpose - they're per-device
+// bookkeeping, not something the user made a change to.
+export function getPendingChangeCount(userId: string): number {
+  const database = getDb();
+  let total = 0;
+  for (const table of [
+    "cached_documents",
+    "cached_academic_info",
+    "cached_document_requests",
+    "cached_reminders",
+  ]) {
+    const row = database.getFirstSync<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM ${table} WHERE user_id = ? AND sync_status != 'synced'`,
+      [userId],
+    );
+    total += row?.total ?? 0;
+  }
+  return total;
+}

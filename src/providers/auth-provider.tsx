@@ -13,6 +13,7 @@ import {
 } from "react";
 
 import { wipeLocalAccountData } from "@/lib/account-cleanup";
+import { clearExportedFiles } from "@/lib/export-files";
 import { cancelAllReminderNotifications } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { suspendSync } from "@/lib/sync";
@@ -149,6 +150,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    // Exported document copies from a previous session are no longer needed,
+    // and nothing can be mid-share at launch.
+    clearExportedFiles();
+
     supabase.auth.getSession().then(async ({ data }) => {
       setSession(data.session);
       await maybeStartEmailOtpChallenge(data.session?.user);
@@ -209,6 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.user.id) {
           await setDeviceTrusted(session.user.id, false);
         }
+        clearExportedFiles();
         setIsPasswordRecovery(false);
         setNeedsEmailOtpChallenge(false);
         setPendingOtpEmail(null);

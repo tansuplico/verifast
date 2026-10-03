@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Directory, File, Paths } from "expo-file-system";
+import { File } from "expo-file-system";
 import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useState } from "react";
@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { clearExportedFiles, getExportsDir } from "@/lib/export-files";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -101,7 +102,12 @@ export default function BackupRecoveryScreen() {
       // though the user-facing "name" doesn't - re-attach it here so the
       // shared file keeps a sensible filename and extension.
       const extension = doc.file_path.split(".").pop() ?? "";
-      const exportsDir = new Directory(Paths.cache, "verifast-exports");
+      // Start from an empty folder: removes earlier exports left behind
+      // (they're readable copies of personal documents), and means a repeat
+      // export of the same document no longer fails with
+      // DestinationAlreadyExists.
+      clearExportedFiles();
+      const exportsDir = getExportsDir();
       exportsDir.create({ intermediates: true, idempotent: true });
       const destination = new File(exportsDir, `${doc.name}.${extension}`);
 

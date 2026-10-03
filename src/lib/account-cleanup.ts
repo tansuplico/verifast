@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { File } from "expo-file-system";
 
 import { removeReminderEvent } from "@/lib/calendar-sync";
+import { clearExportedFiles } from "@/lib/export-files";
 import { cancelAllReminderNotifications } from "@/lib/notifications";
 import {
   getLocalArtifactsForUser,
@@ -46,6 +47,8 @@ export async function wipeLocalAccountData(userId: string) {
       // File already gone or unreadable - the row is wiped below anyway.
     }
   }
+
+  clearExportedFiles();
 
   try {
     await cancelAllReminderNotifications();

@@ -13,9 +13,11 @@ import {
   getPendingRequests,
   markAcademicInfoSynced,
   markCalendarSyncSynced,
+  markDocumentFileUploaded,
   markDocumentSynced,
   markReminderSynced,
   markRequestSynced,
+  markSyncFailed,
   mergeServerAcademicInfo,
   mergeServerCalendarSyncs,
   mergeServerDocuments,
@@ -31,8 +33,9 @@ import {
   type PendingDocumentRow,
   type PendingReminderRow,
   type PendingRequestRow,
+  type SyncableTable,
 } from "@/lib/offline-db";
-import { removeOfflineFile } from "@/lib/offline-files";
+import { readOfflineFile, removeOfflineFile } from "@/lib/offline-files";
 import { supabase } from "@/lib/supabase";
 
 // Pushes changes made on this device (offline or not) up to Supabase, then
@@ -82,6 +85,76 @@ function notifyListeners() {
   listeners.forEach((listener) => listener());
 }
 
+// --- Telling "try again later" from "this will never work" ---
+//
+// Most push failures are the connection (or an expired session) and simply
+// retry on the next sync. A few mean the server will refuse this exact row
+// no matter how often it is sent: a file over the size limit or of a type
+// the bucket doesn't allow, a row that points at a folder that no longer
+// exists, a rejected value. Retrying those forever just burns battery and
+// hides the problem, so they're recorded on the row (markSyncFailed) and
+// shown to the user instead.
+
+type ErrorLike = {
+  code?: string;
+  status?: number;
+  statusCode?: string;
+  message?: string;
+  // Set on the errors this file creates itself (a local file that's gone).
+  permanent?: boolean;
+};
+
+function isPermanentError(error: unknown): boolean {
+  const e = error as ErrorLike;
+  if (e.permanent) return true;
+  // Postgres: data errors (22), integrity violations (23) and permission or
+  // syntax errors (42) are all about the row itself, not the connection.
+  if (typeof e.code === "string" && /^(22|23|42)/.test(e.code)) return true;
+  // Storage reports "too large" / "unsupported type" as 413 / 415, either as
+  // the HTTP status or in the body's statusCode.
+  const statuses = [e.status, Number(e.statusCode)];
+  if (statuses.includes(413) || statuses.includes(415)) return true;
+  if (
+    typeof e.code === "string" &&
+    /EntityTooLarge|InvalidMimeType/i.test(e.code)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function describeError(error: unknown): string {
+  const e = error as ErrorLike;
+  const statuses = [e.status, Number(e.statusCode)];
+  if (statuses.includes(413) || e.code === "EntityTooLarge") {
+    return "This file is too large to upload.";
+  }
+  if (statuses.includes(415) || e.code === "InvalidMimeType") {
+    return "This file type isn't allowed.";
+  }
+  if (e.code === "23503") {
+    return "The folder or document this belongs to no longer exists.";
+  }
+  if (e.code === "42501") {
+    return "Your account isn't allowed to save this.";
+  }
+  return e.message ?? "The server rejected this change.";
+}
+
+// Records a permanent failure on the row. Returns true if it was one (the
+// caller then moves on without treating the sync as broken).
+function rejectedForGood(
+  table: SyncableTable,
+  id: string,
+  localRev: number,
+  error: unknown,
+): boolean {
+  if (!isPermanentError(error)) return false;
+  console.warn("[sync] rejected for good", table, id, error);
+  markSyncFailed(table, id, localRev, describeError(error));
+  return true;
+}
+
 // --- Academic info ---
 
 async function pushAcademicInfoRow(
@@ -123,6 +196,9 @@ async function syncAcademicInfoTable(userId: string): Promise<boolean> {
   for (const row of getPendingAcademicInfo(userId)) {
     const error = await pushAcademicInfoRow(userId, row);
     if (!error) continue;
+    if (rejectedForGood("cached_academic_info", row.id, row.local_rev, error)) {
+      continue;
+    }
 
     ok = false;
     console.warn("[sync] failed to push academic info row", row.id, error);
@@ -187,6 +263,11 @@ async function syncRequestsTable(userId: string): Promise<boolean> {
   for (const row of getPendingRequests(userId)) {
     const error = await pushRequestRow(userId, row);
     if (!error) continue;
+    if (
+      rejectedForGood("cached_document_requests", row.id, row.local_rev, error)
+    ) {
+      continue;
+    }
 
     ok = false;
     console.warn("[sync] failed to push document request", row.id, error);
@@ -300,6 +381,9 @@ async function syncRemindersTable(userId: string): Promise<boolean> {
   for (const row of getPendingReminders(userId)) {
     const error = await pushReminderRow(userId, row);
     if (!error) continue;
+    if (rejectedForGood("cached_reminders", row.id, row.local_rev, error)) {
+      continue;
+    }
 
     ok = false;
     console.warn("[sync] failed to push reminder", row.id, error);
@@ -410,11 +494,61 @@ export async function refreshAccountData(userId: string): Promise<boolean> {
 
 // --- Documents ---
 //
-// Rename, move and recolor are updates; delete removes the stored file and
-// then the row. (Adding a document is still online-only and goes straight
-// to Supabase - it shows up here on the next pull.)
+// Adding a document uploads its file and then creates the row; rename, move
+// and recolor are updates; delete removes the stored file and then the row.
 
-async function pushDocumentRow(row: PendingDocumentRow) {
+// A document added on this device: its file goes to storage first, then
+// the row is created. Both steps are safe to repeat - the upload overwrites
+// the same path, the row is an upsert on the id picked at queue time - and
+// file_uploaded remembers the first step so a failure in the second doesn't
+// send a large file up a second time.
+async function pushNewDocument(userId: string, row: PendingDocumentRow) {
+  if (!row.file_uploaded) {
+    const bytes = await readOfflineFile(row.id);
+    if (!bytes || !row.file_path) {
+      // The local copy is gone (app storage was cleared), so there is
+      // nothing left to upload - this will never succeed.
+      return {
+        permanent: true,
+        message:
+          "The file is no longer on this device, so it can't be uploaded.",
+      };
+    }
+
+    const { error: uploadError } = await supabase.storage
+      .from("documents")
+      .upload(row.file_path, bytes, {
+        contentType: row.mime_type ?? undefined,
+        upsert: true,
+      });
+    if (uploadError) return uploadError;
+    markDocumentFileUploaded(row.id);
+  }
+
+  const { error } = await supabase.from("documents").upsert(
+    {
+      id: row.id,
+      user_id: userId,
+      folder_id: row.folder_id,
+      name: row.name,
+      file_path: row.file_path,
+      mime_type: row.mime_type,
+      file_size: row.file_size,
+      created_at: row.created_at,
+    },
+    { onConflict: "id" },
+  );
+  if (error) return error;
+
+  markDocumentSynced(row.id, row.local_rev);
+  return null;
+}
+
+async function pushDocumentRow(userId: string, row: PendingDocumentRow) {
+  if (row.sync_status === "pending_create") {
+    return pushNewDocument(userId, row);
+  }
+
   if (row.sync_status === "pending_delete") {
     // File first: if this fails the row stays pending and the whole delete
     // retries, instead of leaving a file with no row pointing at it.
@@ -460,8 +594,15 @@ async function syncDocumentsTable(userId: string): Promise<boolean> {
   let ok = true;
 
   for (const row of getPendingDocuments(userId)) {
-    const error = await pushDocumentRow(row);
+    // A big upload can take a while - don't start the next one if the
+    // account is being deleted underneath it.
+    if (suspended) return false;
+
+    const error = await pushDocumentRow(userId, row);
     if (!error) continue;
+    if (rejectedForGood("cached_documents", row.id, row.local_rev, error)) {
+      continue;
+    }
 
     ok = false;
     console.warn("[sync] failed to push document", row.id, error);
@@ -525,15 +666,17 @@ async function runSync(userId: string): Promise<FullSyncResult> {
   }
   if (suspended) return NOTHING_SYNCED;
   try {
-    documentsOk = await syncDocumentsTable(userId);
-  } catch (error) {
-    console.warn("[sync] unexpected documents error", error);
-  }
-  if (suspended) return NOTHING_SYNCED;
-  try {
     accountOk = await refreshAccountData(userId);
   } catch (error) {
     console.warn("[sync] unexpected account data error", error);
+  }
+  // Documents go last: an upload can take a while on a slow connection, and
+  // the small stuff above shouldn't wait behind it.
+  if (suspended) return NOTHING_SYNCED;
+  try {
+    documentsOk = await syncDocumentsTable(userId);
+  } catch (error) {
+    console.warn("[sync] unexpected documents error", error);
   }
 
   notifyListeners();

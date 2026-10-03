@@ -36,6 +36,7 @@ import { useAuth } from "@/providers/auth-provider";
 type AcademicInfoRow = AcademicInfoItem & {
   posted_at: string;
   sync_status: SyncStatus;
+  sync_error: string | null;
 };
 
 type FilterKey = "all" | AcademicInfoCategory;
@@ -294,12 +295,25 @@ export default function AcademicInfoScreen() {
                     {item.sync_status !== "synced" && (
                       <View style={styles.syncPending}>
                         <Ionicons
-                          name="cloud-upload-outline"
+                          name={
+                            item.sync_error
+                              ? "alert-circle"
+                              : "cloud-upload-outline"
+                          }
                           size={12}
-                          color="#a5a9b1"
+                          color={item.sync_error ? "#ef4444" : "#a5a9b1"}
                         />
-                        <ThemedText type="small" style={styles.cardDate}>
-                          Waiting to sync
+                        <ThemedText
+                          type="small"
+                          style={
+                            item.sync_error
+                              ? styles.syncFailedText
+                              : styles.cardDate
+                          }
+                        >
+                          {item.sync_error
+                            ? "Couldn't sync - edit or delete"
+                            : "Waiting to sync"}
                         </ThemedText>
                       </View>
                     )}
@@ -438,6 +452,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.one,
   },
   cardDate: { color: "#a5a9b1" },
+  syncFailedText: { color: "#ef4444" },
   syncPending: {
     flexDirection: "row",
     alignItems: "center",

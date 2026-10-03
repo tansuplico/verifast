@@ -11,7 +11,7 @@ import {
 import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
-import { updateDocumentLocal } from "@/lib/offline-db";
+import { retryDocumentSync, updateDocumentLocal } from "@/lib/offline-db";
 import { requestSync } from "@/lib/sync";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -28,6 +28,7 @@ type DocumentActionsMenuProps = {
   onRenamed: () => void;
   onMoved: () => void;
   onColorChanged: () => void;
+  onRetried: () => void;
   onDeleteRequested: (doc: DocumentRow) => void;
 };
 
@@ -53,6 +54,7 @@ export function DocumentActionsMenu({
   onRenamed,
   onMoved,
   onColorChanged,
+  onRetried,
   onDeleteRequested,
 }: DocumentActionsMenuProps) {
   const [mode, setMode] = useState<Mode>("menu");
@@ -136,6 +138,19 @@ export function DocumentActionsMenu({
     );
   }
 
+  // Puts a document whose upload was rejected back in the queue (it only
+  // makes sense after something changed - a better connection, a smaller
+  // file replacing it - but the rejection is never held against it).
+  function handleRetry() {
+    if (!document || !session) return;
+    const userId = session.user.id;
+    retryDocumentSync(userId, document.id);
+    requestSync(userId);
+    showToast("Trying again");
+    onRetried();
+    onClose();
+  }
+
   if (!document) return null;
 
   return (
@@ -158,6 +173,29 @@ export function DocumentActionsMenu({
               <Ionicons name="close" size={18} color="#60646C" />
             </Pressable>
           </View>
+
+          {document.sync_error && (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle" size={18} color="#ef4444" />
+              <View style={styles.errorTextGroup}>
+                <ThemedText type="smallBold" style={styles.errorTitle}>
+                  Couldn&apos;t upload this document
+                </ThemedText>
+                <ThemedText type="small" style={styles.errorMessage}>
+                  {document.sync_error}
+                </ThemedText>
+              </View>
+            </View>
+          )}
+
+          {document.sync_error && (
+            <Pressable style={styles.actionRow} onPress={handleRetry}>
+              <Ionicons name="refresh-outline" size={18} color="#1a1c20" />
+              <ThemedText type="small" style={styles.actionLabel}>
+                Try again
+              </ThemedText>
+            </Pressable>
+          )}
 
           <Pressable style={styles.actionRow} onPress={() => setMode("rename")}>
             <Ionicons name="pencil-outline" size={18} color="#1a1c20" />
@@ -413,4 +451,16 @@ const styles = StyleSheet.create({
     textAlign: "right",
     marginTop: Spacing.half,
   },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.two,
+    padding: Spacing.three,
+    marginBottom: Spacing.two,
+    borderRadius: 12,
+    backgroundColor: "#fef2f2",
+  },
+  errorTextGroup: { flex: 1, gap: 2 },
+  errorTitle: { color: "#b91c1c" },
+  errorMessage: { color: "#b91c1c" },
 });

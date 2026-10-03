@@ -16,4 +16,7 @@ export type DocumentRow = {
     | "pending_create"
     | "pending_update"
     | "pending_delete";
+  // Why the last attempt to push this document was permanently rejected
+  // (too large, wrong type, ...). Null when there's no such failure.
+  sync_error?: string | null;
 };

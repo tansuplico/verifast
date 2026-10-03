@@ -77,6 +77,7 @@ type Reminder = {
   category: ReminderCategory;
   calendarEventId: string | null;
   syncStatus: SyncStatus;
+  syncError: string | null;
 };
 
 function toReminder(row: CachedReminderRow): Reminder {
@@ -87,6 +88,7 @@ function toReminder(row: CachedReminderRow): Reminder {
     category: row.category,
     calendarEventId: row.calendar_event_id,
     syncStatus: row.sync_status,
+    syncError: row.sync_error,
   };
 }
 
@@ -490,10 +492,14 @@ export default function DeadlinesRemindersScreen() {
           <View style={styles.cardIconRow}>
             {reminder.syncStatus !== "synced" && (
               <Ionicons
-                name="cloud-upload-outline"
+                name={
+                  reminder.syncError ? "alert-circle" : "cloud-upload-outline"
+                }
                 size={16}
-                color="#a5a9b1"
-                accessibilityLabel="Waiting to sync"
+                color={reminder.syncError ? "#ef4444" : "#a5a9b1"}
+                accessibilityLabel={
+                  reminder.syncError ? "Couldn't sync" : "Waiting to sync"
+                }
               />
             )}
             {reminder.calendarEventId && (

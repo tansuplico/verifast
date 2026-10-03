@@ -182,6 +182,35 @@ function getDb(): SQLiteDatabase {
       }
     }
 
+    // Failure tracking (see markSyncFailed) on every table the user can edit
+    // offline, and whether a queued document's file has reached storage yet.
+    for (const table of [
+      "cached_documents",
+      "cached_academic_info",
+      "cached_document_requests",
+      "cached_reminders",
+    ]) {
+      const existingColumns = database.getAllSync<{ name: string }>(
+        `PRAGMA table_info(${table})`,
+      );
+      if (!existingColumns.some((c) => c.name === "sync_error")) {
+        database.execSync(`ALTER TABLE ${table} ADD COLUMN sync_error TEXT`);
+      }
+      if (!existingColumns.some((c) => c.name === "sync_error_rev")) {
+        database.execSync(
+          `ALTER TABLE ${table} ADD COLUMN sync_error_rev INTEGER`,
+        );
+      }
+    }
+    const documentColumnsNow = database.getAllSync<{ name: string }>(
+      "PRAGMA table_info(cached_documents)",
+    );
+    if (!documentColumnsNow.some((c) => c.name === "file_uploaded")) {
+      database.execSync(
+        "ALTER TABLE cached_documents ADD COLUMN file_uploaded INTEGER NOT NULL DEFAULT 0",
+      );
+    }
+
     db = database;
   }
   return db;
@@ -199,6 +228,37 @@ export type SyncStatus =
   | "pending_update"
   | "pending_delete";
 
+// A row has "failed" when sync.ts was told the server will never accept it
+// (a file over the size limit, a folder that no longer exists, ...) as
+// opposed to a connection problem, which just retries. The failure is tied
+// to the version of the row it happened to: sync_error_rev is the local_rev
+// that was rejected, so ANY later edit (which bumps local_rev) makes the
+// failure stale on its own and the row goes back in the queue - no edit
+// path has to remember to clear anything. Failed rows are skipped by sync
+// (retrying a rejection forever helps nobody) and shown to the user instead.
+const SYNC_ERROR_SELECT =
+  "CASE WHEN sync_error IS NOT NULL AND sync_error_rev = local_rev THEN sync_error END AS sync_error";
+const NOT_FAILED =
+  "NOT (sync_error IS NOT NULL AND sync_error_rev = local_rev)";
+
+export type SyncableTable =
+  | "cached_documents"
+  | "cached_academic_info"
+  | "cached_document_requests"
+  | "cached_reminders";
+
+export function markSyncFailed(
+  table: SyncableTable,
+  id: string,
+  localRev: number,
+  message: string,
+) {
+  getDb().runSync(
+    `UPDATE ${table} SET sync_error = ?, sync_error_rev = ? WHERE id = ? AND local_rev = ?`,
+    [message, localRev, id, localRev],
+  );
+}
+
 export type ServerAcademicInfoRow = {
   id: string;
   category: AcademicInfoCategory;
@@ -210,6 +270,8 @@ export type ServerAcademicInfoRow = {
 
 export type CachedAcademicInfoRow = ServerAcademicInfoRow & {
   sync_status: SyncStatus;
+  // Why the last push of this row was permanently rejected, if it was.
+  sync_error: string | null;
 };
 
 export type PendingAcademicInfoRow = CachedAcademicInfoRow & {
@@ -218,8 +280,7 @@ export type PendingAcademicInfoRow = CachedAcademicInfoRow & {
 
 // --- Documents + folders (Documents screen, Search) ---
 
-const DOCUMENT_COLUMNS =
-  "id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at, sync_status, local_rev";
+const DOCUMENT_COLUMNS = `id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at, sync_status, local_rev, file_uploaded, ${SYNC_ERROR_SELECT}`;
 
 // Documents are local-first like academic info, requests and reminders:
 // this table is what the screens show, sync_status tracks what still has to
@@ -328,16 +389,54 @@ export function updateDocumentLocal(
   );
 }
 
+// Adds a document to the local database as "waiting to upload". The picked
+// file has already been copied into app storage by offline-files.ts; sync.ts
+// uploads it and then creates the row on the server.
+export function createDocumentLocal(
+  userId: string,
+  input: {
+    id: string;
+    folder_id: string;
+    name: string;
+    file_path: string;
+    mime_type: string;
+    file_size: number | null;
+  },
+) {
+  const now = new Date().toISOString();
+  getDb().runSync(
+    `INSERT INTO cached_documents
+      (id, user_id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, updated_at, sync_status, local_rev, file_uploaded)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 'pending_create', 1, 0)`,
+    [
+      input.id,
+      userId,
+      input.folder_id,
+      input.name,
+      input.file_path,
+      input.mime_type,
+      input.file_size,
+      now,
+      now,
+    ],
+  );
+}
+
 export function deleteDocumentLocal(userId: string, id: string) {
   const database = getDb();
-  const existing = database.getFirstSync<{ sync_status: SyncStatus }>(
-    "SELECT sync_status FROM cached_documents WHERE id = ? AND user_id = ?",
+  const existing = database.getFirstSync<{
+    sync_status: SyncStatus;
+    file_uploaded: number;
+  }>(
+    "SELECT sync_status, file_uploaded FROM cached_documents WHERE id = ? AND user_id = ?",
     [id, userId],
   );
   if (!existing) return;
 
-  if (existing.sync_status === "pending_create") {
-    // Never reached the server, so there's nothing to delete remotely.
+  // Only a document that never got anything onto the server can simply
+  // disappear. If its file already reached storage (but the row didn't
+  // make it), the delete still has to go out so the file isn't orphaned.
+  if (existing.sync_status === "pending_create" && !existing.file_uploaded) {
     database.runSync("DELETE FROM cached_documents WHERE id = ?", [id]);
     return;
   }
@@ -350,15 +449,35 @@ export function deleteDocumentLocal(userId: string, id: string) {
   );
 }
 
+export function markDocumentFileUploaded(id: string) {
+  getDb().runSync(
+    "UPDATE cached_documents SET file_uploaded = 1 WHERE id = ?",
+    [id],
+  );
+}
+
+// "Try again" for a document whose upload was rejected: bumping local_rev
+// is all it takes - the recorded failure belongs to the old revision, so
+// the row simply rejoins the queue.
+export function retryDocumentSync(userId: string, id: string) {
+  getDb().runSync(
+    "UPDATE cached_documents SET local_rev = local_rev + 1 WHERE id = ? AND user_id = ?",
+    [id, userId],
+  );
+}
+
 export type PendingDocumentRow = DocumentRow & {
   sync_status: SyncStatus;
   local_rev: number;
+  // 1 once the file itself is in storage (the row insert can still be
+  // outstanding), so a retry doesn't upload the same file twice.
+  file_uploaded: number;
 };
 
 export function getPendingDocuments(userId: string): PendingDocumentRow[] {
   return getDb().getAllSync<PendingDocumentRow>(
     `SELECT ${DOCUMENT_COLUMNS} FROM cached_documents
-     WHERE user_id = ? AND sync_status != 'synced'
+     WHERE user_id = ? AND sync_status != 'synced' AND ${NOT_FAILED}
      ORDER BY CASE sync_status
        WHEN 'pending_create' THEN 0
        WHEN 'pending_update' THEN 1
@@ -414,7 +533,7 @@ export function getCachedFolders(userId: string): CachedFolder[] {
 
 export function searchCachedDocuments(userId: string, query: string) {
   return getDb().getAllSync<DocumentRow>(
-    `SELECT id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color
+    `SELECT id, folder_id, name, file_path, mime_type, file_size, created_at, icon_color, sync_status
      FROM cached_documents
      WHERE user_id = ? AND sync_status != 'pending_delete'
        AND name LIKE ? COLLATE NOCASE
@@ -438,11 +557,11 @@ export function searchCachedDocuments(userId: string, query: string) {
 type AcademicInfoDbRow = Omit<ServerAcademicInfoRow, "is_pinned"> & {
   is_pinned: number;
   sync_status: SyncStatus;
+  sync_error: string | null;
   local_rev: number;
 };
 
-const ACADEMIC_INFO_COLUMNS =
-  "id, category, title, content, is_pinned, posted_at, sync_status, local_rev";
+const ACADEMIC_INFO_COLUMNS = `id, category, title, content, is_pinned, posted_at, sync_status, local_rev, ${SYNC_ERROR_SELECT}`;
 
 function toAcademicInfoRow(row: AcademicInfoDbRow): PendingAcademicInfoRow {
   return { ...row, is_pinned: row.is_pinned === 1 };
@@ -601,7 +720,7 @@ export function getPendingAcademicInfo(
 ): PendingAcademicInfoRow[] {
   const rows = getDb().getAllSync<AcademicInfoDbRow>(
     `SELECT ${ACADEMIC_INFO_COLUMNS} FROM cached_academic_info
-     WHERE user_id = ? AND sync_status != 'synced'
+     WHERE user_id = ? AND sync_status != 'synced' AND ${NOT_FAILED}
      ORDER BY CASE sync_status
        WHEN 'pending_create' THEN 0
        WHEN 'pending_update' THEN 1
@@ -647,12 +766,12 @@ export type ServerRequestRow = {
 
 export type CachedRequestRow = ServerRequestRow & {
   sync_status: SyncStatus;
+  sync_error: string | null;
 };
 
 export type PendingRequestRow = CachedRequestRow & { local_rev: number };
 
-const REQUEST_COLUMNS =
-  "id, document_type, office, status, requested_date, released_date, created_at, sync_status, local_rev";
+const REQUEST_COLUMNS = `id, document_type, office, status, requested_date, released_date, created_at, sync_status, local_rev, ${SYNC_ERROR_SELECT}`;
 
 // Today's date as YYYY-MM-DD in the phone's own timezone. The server's
 // CURRENT_DATE default is in UTC, which in the Philippines is still
@@ -796,7 +915,7 @@ export function deleteRequestLocal(userId: string, id: string) {
 export function getPendingRequests(userId: string): PendingRequestRow[] {
   return getDb().getAllSync<PendingRequestRow>(
     `SELECT ${REQUEST_COLUMNS} FROM cached_document_requests
-     WHERE user_id = ? AND sync_status != 'synced'
+     WHERE user_id = ? AND sync_status != 'synced' AND ${NOT_FAILED}
      ORDER BY CASE sync_status
        WHEN 'pending_create' THEN 0
        WHEN 'pending_update' THEN 1
@@ -838,6 +957,7 @@ export type ServerReminderRow = {
 
 export type CachedReminderRow = ServerReminderRow & {
   sync_status: SyncStatus;
+  sync_error: string | null;
   // This device's calendar event for the reminder, if Calendar Sync made one.
   calendar_event_id: string | null;
 };
@@ -855,6 +975,8 @@ export function getCachedReminders(
 ): CachedReminderRow[] {
   return getDb().getAllSync<CachedReminderRow>(
     `SELECT r.id, r.title, r.category, r.due_date, r.sync_status,
+            CASE WHEN r.sync_error IS NOT NULL AND r.sync_error_rev = r.local_rev
+                 THEN r.sync_error END AS sync_error,
             cs.calendar_event_id AS calendar_event_id
      FROM cached_reminders r
      LEFT JOIN cached_calendar_syncs cs
@@ -1002,7 +1124,7 @@ export function getPendingReminders(userId: string): PendingReminderRow[] {
   return getDb().getAllSync<PendingReminderRow>(
     `SELECT id, title, category, due_date, sync_status, local_rev
      FROM cached_reminders
-     WHERE user_id = ? AND sync_status != 'synced'
+     WHERE user_id = ? AND sync_status != 'synced' AND ${NOT_FAILED}
      ORDER BY CASE sync_status
        WHEN 'pending_create' THEN 0
        WHEN 'pending_update' THEN 1
@@ -1412,7 +1534,7 @@ export function getPendingChangeCount(userId: string): number {
     "cached_reminders",
   ]) {
     const row = database.getFirstSync<{ total: number }>(
-      `SELECT COUNT(*) AS total FROM ${table} WHERE user_id = ? AND sync_status != 'synced'`,
+      `SELECT COUNT(*) AS total FROM ${table} WHERE user_id = ? AND sync_status != 'synced' AND ${NOT_FAILED}`,
       [userId],
     );
     total += row?.total ?? 0;

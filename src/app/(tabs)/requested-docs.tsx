@@ -42,6 +42,7 @@ type RequestRow = {
   requested_date: string;
   released_date: string | null;
   sync_status: SyncStatus;
+  sync_error: string | null;
 };
 
 function formatDate(dateString: string) {
@@ -317,12 +318,25 @@ export default function RequestedDocsScreen() {
                     {request.sync_status !== "synced" && (
                       <View style={styles.syncPending}>
                         <Ionicons
-                          name="cloud-upload-outline"
+                          name={
+                            request.sync_error
+                              ? "alert-circle"
+                              : "cloud-upload-outline"
+                          }
                           size={12}
-                          color="#8b8f99"
+                          color={request.sync_error ? "#ef4444" : "#8b8f99"}
                         />
-                        <ThemedText type="small" style={styles.rowSubtext}>
-                          Waiting to sync
+                        <ThemedText
+                          type="small"
+                          style={
+                            request.sync_error
+                              ? styles.syncFailedText
+                              : styles.rowSubtext
+                          }
+                        >
+                          {request.sync_error
+                            ? "Couldn't sync - delete and re-add"
+                            : "Waiting to sync"}
                         </ThemedText>
                       </View>
                     )}
@@ -458,6 +472,7 @@ const styles = StyleSheet.create({
   },
   rowTitle: { color: "#1a1c20" },
   rowSubtext: { color: "#8b8f99" },
+  syncFailedText: { color: "#ef4444" },
   statusPill: {
     flexDirection: "row",
     alignItems: "center",

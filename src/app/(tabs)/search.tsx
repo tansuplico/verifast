@@ -42,6 +42,8 @@ type DocumentResult = {
   name: string;
   mime_type: string | null;
   file_path: string;
+  // Only present on results read from the local database.
+  sync_status?: string;
 };
 
 type AcademicInfoResult = {
@@ -163,7 +165,9 @@ export default function SearchScreen() {
     async (doc: DocumentResult) => {
       if (!doc.file_path) return;
 
-      if (isOnline) {
+      // Still waiting to upload: nothing in storage to sign a URL for, so
+      // it opens from its local copy below.
+      if (isOnline && doc.sync_status !== "pending_create") {
         const { data, error } = await supabase.storage
           .from("documents")
           .createSignedUrl(doc.file_path, 60);

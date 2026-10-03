@@ -1,11 +1,16 @@
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { checkIsOnline } from "@/hooks/use-network-status";
-import { supabase } from "@/lib/supabase";
+import { createDocumentLocal, recordDownloadedFile } from "@/lib/offline-db";
+import {
+  copyPickedFileForUpload,
+  discardCopiedFile,
+} from "@/lib/offline-files";
+import { requestSync } from "@/lib/sync";
+import { uuidv4 } from "@/lib/uuid";
 import { showAlert } from "@/providers/alert-provider";
 import { useToast } from "@/providers/toast-provider";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { decode } from "base64-arraybuffer";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useState } from "react";
@@ -217,56 +222,78 @@ export function AddDocumentModal({
     }
   }
 
+  // Adding a document no longer waits on the network. The picked file is
+  // copied into app storage and the document appears in the list straight
+  // away as "waiting to upload"; sync.ts uploads it in the background -
+  // immediately when online, on reconnect otherwise.
   async function handleAddDocument() {
-    if (!pickedFile || !documentName.trim() || !selectedFolderId || !userId) {
-      return;
-    }
-
-    // Uploading a file still needs a connection - say so plainly instead of
-    // surfacing a raw network error.
-    if (!(await checkIsOnline())) {
-      showAlert(
-        "You're offline",
-        "Uploading a document needs an internet connection. Try again once you're back online.",
-        undefined,
-        { tone: "danger" },
-      );
+    if (
+      !pickedFile ||
+      !documentName.trim() ||
+      !selectedFolderId ||
+      !userId ||
+      isUploading
+    ) {
       return;
     }
 
     setIsUploading(true);
-    try {
-      const arrayBuffer = pickedFile.base64
-        ? decode(pickedFile.base64)
-        : await fetch(pickedFile.uri).then((r) => r.arrayBuffer());
-      const extension = pickedFile.name.includes(".")
-        ? pickedFile.name.split(".").pop()
-        : "dat";
-      const storagePath = `${userId}/${Date.now()}-${Math.round(Math.random() * 1e6)}.${extension}`;
-      const uploadResult = await supabase.storage
-        .from("documents")
-        .upload(storagePath, arrayBuffer, {
-          contentType: pickedFile.mimeType,
-        });
-      if (uploadResult.error) throw uploadResult.error;
+    const id = uuidv4();
+    let copiedUri: string | null = null;
 
-      const insertResult = await supabase.from("documents").insert({
-        user_id: userId,
+    try {
+      const extension =
+        (pickedFile.name.includes(".") ? pickedFile.name.split(".").pop() : "")
+          ?.replace(/[^a-z0-9]/gi, "")
+          .toLowerCase() || "dat";
+      const storagePath = `${userId}/${Date.now()}-${Math.round(Math.random() * 1e6)}.${extension}`;
+
+      const copied = await copyPickedFileForUpload(id, extension, {
+        uri: pickedFile.uri,
+        base64: pickedFile.base64,
+      });
+      copiedUri = copied.uri;
+
+      // The picker doesn't always report a size, so the copy's real size is
+      // what the limit is checked against.
+      const fileSize = copied.size ?? pickedFile.size;
+      if (fileSize && fileSize > MAX_FILE_SIZE_BYTES) {
+        discardCopiedFile(copied.uri);
+        await showAlert(
+          "File too large",
+          "Documents must be 10 MB or smaller.",
+          undefined,
+          { tone: "warning" },
+        );
+        setIsUploading(false);
+        return;
+      }
+
+      createDocumentLocal(userId, {
+        id,
         folder_id: selectedFolderId,
         name: documentName.trim(),
         file_path: storagePath,
         mime_type: pickedFile.mimeType,
-        file_size: pickedFile.size,
+        file_size: fileSize,
       });
-      if (insertResult.error) throw insertResult.error;
+      // Also makes the new document open straight away, even offline.
+      recordDownloadedFile(id, copied.uri);
 
-      showToast("Document uploaded");
+      const online = await checkIsOnline();
+      requestSync(userId);
+      showToast(
+        online
+          ? "Document added"
+          : "Saved - it will upload when you're back online",
+      );
       reset();
       onUploaded();
       onClose();
     } catch (error) {
+      if (copiedUri) discardCopiedFile(copiedUri);
       showAlert(
-        "Upload failed",
+        "Couldn't add document",
         error instanceof Error ? error.message : "Something went wrong.",
         undefined,
         { tone: "danger" },

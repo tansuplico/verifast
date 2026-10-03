@@ -226,7 +226,9 @@ export default function DocumentsScreen() {
       // Online path first (freshest signed URL), same as before - skipped
       // entirely when we already know we're offline, so there's no pointless
       // wait for a request that can't succeed.
-      if (isOnline) {
+      // A document that is still waiting to upload has nothing in storage to
+      // sign a URL for - it opens from its local copy below.
+      if (isOnline && doc.sync_status !== "pending_create") {
         const { data, error } = await supabase.storage
           .from("documents")
           .createSignedUrl(doc.file_path, 60);
@@ -549,10 +551,14 @@ export default function DocumentsScreen() {
               </View>
               {doc.sync_status && doc.sync_status !== "synced" && (
                 <Ionicons
-                  name="cloud-upload-outline"
+                  name={
+                    doc.sync_error ? "alert-circle" : "cloud-upload-outline"
+                  }
                   size={14}
-                  color="#a5a9b1"
-                  accessibilityLabel="Waiting to sync"
+                  color={doc.sync_error ? "#ef4444" : "#a5a9b1"}
+                  accessibilityLabel={
+                    doc.sync_error ? "Upload failed" : "Waiting to sync"
+                  }
                 />
               )}
               <View style={styles.formatBadge}>
@@ -618,10 +624,14 @@ export default function DocumentsScreen() {
                   </ThemedText>
                   {doc.sync_status && doc.sync_status !== "synced" && (
                     <Ionicons
-                      name="cloud-upload-outline"
+                      name={
+                        doc.sync_error ? "alert-circle" : "cloud-upload-outline"
+                      }
                       size={12}
-                      color="#a5a9b1"
-                      accessibilityLabel="Waiting to sync"
+                      color={doc.sync_error ? "#ef4444" : "#a5a9b1"}
+                      accessibilityLabel={
+                        doc.sync_error ? "Upload failed" : "Waiting to sync"
+                      }
                     />
                   )}
                 </View>
@@ -660,7 +670,7 @@ export default function DocumentsScreen() {
         onClose={() => setIsAddModalVisible(false)}
         folders={folders}
         userId={session?.user.id}
-        onUploaded={() => loadDocuments({ force: true })}
+        onUploaded={reloadFromLocal}
       />
 
       <DocumentPreviewModal
@@ -681,6 +691,7 @@ export default function DocumentsScreen() {
         onRenamed={reloadFromLocal}
         onMoved={reloadFromLocal}
         onColorChanged={reloadFromLocal}
+        onRetried={reloadFromLocal}
         onDeleteRequested={handleDeleteDocument}
       />
     </SafeAreaView>

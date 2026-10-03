@@ -1,3 +1,4 @@
+import { decode } from "base64-arraybuffer";
 import { Directory, File, Paths } from "expo-file-system";
 
 import {
@@ -69,4 +70,52 @@ export function removeOfflineFile(documentId: string) {
     }
   }
   forgetDownloadedFile(documentId);
+}
+
+// Copies a freshly picked file into persistent app storage so it can be
+// uploaded later - the picker's own copy lives in the cache directory, which
+// the OS may clear at any time, and an upload queued while offline can wait
+// a long while. The copy also doubles as the document's offline copy, so a
+// document you just added opens without a connection. Returns the copy's
+// real size, which is more trustworthy than what the picker reported.
+export async function copyPickedFileForUpload(
+  documentId: string,
+  extension: string,
+  source: { uri: string; base64?: string },
+): Promise<{ uri: string; size: number | null }> {
+  ensureDir();
+  const destination = new File(OFFLINE_DOCS_DIR, `${documentId}.${extension}`);
+
+  try {
+    await new File(source.uri).copy(destination, { overwrite: true });
+  } catch (copyError) {
+    // Some pickers hand back a URI that can't be copied directly; the photo
+    // pickers also return the image's bytes, which is a fine fallback.
+    if (!source.base64) throw copyError;
+    if (!destination.exists) destination.create({ intermediates: true });
+    destination.write(new Uint8Array(decode(source.base64)));
+  }
+
+  return { uri: destination.uri, size: destination.size ?? null };
+}
+
+// The bytes of a document's local copy, for uploading. Null if the file is
+// gone (the user cleared the app's storage).
+export async function readOfflineFile(
+  documentId: string,
+): Promise<ArrayBuffer | null> {
+  const uri = getOfflineFileUri(documentId);
+  if (!uri) return null;
+  return new File(uri).arrayBuffer();
+}
+
+// Removes a copy made by copyPickedFileForUpload that never got as far as a
+// database row (the file turned out to be over the size limit, say).
+export function discardCopiedFile(uri: string) {
+  try {
+    const file = new File(uri);
+    if (file.exists) file.delete();
+  } catch (error) {
+    console.error("Failed to discard copied file", error);
+  }
 }

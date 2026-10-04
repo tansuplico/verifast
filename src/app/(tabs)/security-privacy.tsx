@@ -19,6 +19,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ToggleSwitch } from "@/components/toggle-switch";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { useIsOnline } from "@/hooks/use-network-status";
+import { hasProAccess } from "@/lib/subscription";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -71,14 +72,12 @@ export default function SecurityPrivacyScreen() {
     if (!userId) return;
     supabase
       .from("subscriptions")
-      .select("status")
+      .select("status, current_period_end")
       .eq("user_id", userId)
       .maybeSingle()
       .then(({ data }) => {
         setHasSubscription(
-          data?.status === "active" ||
-            data?.status === "trialing" ||
-            data?.status === "past_due",
+          hasProAccess(data?.status, data?.current_period_end),
         );
       });
   }, [session?.user.id]);

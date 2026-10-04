@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { clearExportedFiles, getExportsDir } from "@/lib/export-files";
+import { hasProAccess } from "@/lib/subscription";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -57,6 +58,9 @@ export default function BackupRecoveryScreen() {
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] =
     useState<SubscriptionStatus | null>(null);
+  const [subscriptionPeriodEnd, setSubscriptionPeriodEnd] = useState<
+    string | null
+  >(null);
 
   const loadDocuments = useCallback(async () => {
     if (!session) return;
@@ -69,12 +73,15 @@ export default function BackupRecoveryScreen() {
         .order("created_at", { ascending: false }),
       supabase
         .from("subscriptions")
-        .select("status")
+        .select("status, current_period_end")
         .eq("user_id", session.user.id)
         .single(),
     ]);
     setDocuments(documentsResult.data ?? []);
     setSubscriptionStatus(subscriptionResult.data?.status ?? null);
+    setSubscriptionPeriodEnd(
+      subscriptionResult.data?.current_period_end ?? null,
+    );
     setIsLoading(false);
   }, [session]);
 
@@ -137,10 +144,7 @@ export default function BackupRecoveryScreen() {
     }
   }
 
-  const isPro =
-    subscriptionStatus === "trialing" ||
-    subscriptionStatus === "active" ||
-    subscriptionStatus === "past_due";
+  const isPro = hasProAccess(subscriptionStatus, subscriptionPeriodEnd);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>

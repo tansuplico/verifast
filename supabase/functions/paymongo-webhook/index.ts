@@ -68,8 +68,12 @@ Deno.serve(async (req) => {
       `${timestamp}.${rawBody}`,
     );
 
-    // Sandbox is always test mode, so check testSig first; fall back to liveSig for prod later
-    const candidateSig = testSig ?? liveSig;
+    // PayMongo always sends both fields and leaves the other mode's one
+    // empty ("t=...,te=,li=<sig>" for a live event, "te=<sig>,li=" for a
+    // test one), so pick whichever is non-empty. `??` would not do: it only
+    // skips null/undefined, so an empty `te=` would be chosen and every live
+    // event rejected with a 401.
+    const candidateSig = liveSig || testSig;
     if (!timingSafeEqual(expectedSig, candidateSig)) {
       return new Response(JSON.stringify({ error: "Invalid signature" }), {
         status: 401,
@@ -132,9 +136,19 @@ Deno.serve(async (req) => {
 
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // One annual payment buys one year of Pro. Checkout is a one-time
+    // payment (nothing renews on its own), so this date is when access
+    // ends; a daily database job flips the plan to "expired" after it.
+    const periodEnd = new Date();
+    periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+
     const { data: updatedRows, error: updateError } = await adminClient
       .from("subscriptions")
-      .update({ status: "active", paymongo_payment_intent_id: paymentIntentId })
+      .update({
+        status: "active",
+        paymongo_payment_intent_id: paymentIntentId,
+        current_period_end: periodEnd.toISOString(),
+      })
       .eq("user_id", userId)
       .neq("status", "active")
       .select("user_id");

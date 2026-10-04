@@ -123,7 +123,7 @@ function statusBannerCopy(sub: SubscriptionRow | null) {
         tone: "success" as const,
         title: "You're on VeriFast Pro",
         detail: sub.current_period_end
-          ? `Renews on ${formatDate(sub.current_period_end)}`
+          ? `Active until ${formatDate(sub.current_period_end)}`
           : "Your plan is active.",
       };
     case "past_due":

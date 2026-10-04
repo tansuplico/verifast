@@ -9,6 +9,7 @@ import {
   getCachedProfile,
   getCachedSubscription,
 } from "@/lib/offline-db";
+import { hasProAccess } from "@/lib/subscription";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -69,7 +70,7 @@ function subscriptionCopy(sub: SubscriptionRow | null) {
       return {
         title: "VeriFast Annual",
         detail: sub.current_period_end
-          ? `Active. Renews ${formatDate(sub.current_period_end)}`
+          ? `Active until ${formatDate(sub.current_period_end)}`
           : "Active",
       };
     case "past_due":
@@ -170,10 +171,10 @@ export default function ProfileScreen() {
     .join(" • ");
   const plan = subscriptionCopy(subscription);
 
-  const isPro =
-    subscription?.status === "trialing" ||
-    subscription?.status === "active" ||
-    subscription?.status === "past_due";
+  const isPro = hasProAccess(
+    subscription?.status,
+    subscription?.current_period_end,
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>

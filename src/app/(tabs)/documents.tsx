@@ -18,6 +18,7 @@ import { DocumentActionsMenu } from "@/components/document-actions-menu";
 import { DocumentPreviewModal } from "@/components/document-preview-modal";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { hasProAccess } from "@/lib/subscription";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -151,6 +152,9 @@ export default function DocumentsScreen() {
   const isOnline = useIsOnline();
   const [subscriptionStatus, setSubscriptionStatus] =
     useState<SubscriptionStatus | null>(null);
+  const [subscriptionPeriodEnd, setSubscriptionPeriodEnd] = useState<
+    string | null
+  >(null);
 
   // Local-first: the list always comes from the on-device database, so it
   // looks and behaves the same with or without a connection. Syncing with
@@ -162,7 +166,9 @@ export default function DocumentsScreen() {
     setDocuments(getCachedDocuments(userId));
     // The Free-plan limit needs the plan; the on-device copy of it keeps
     // Pro accounts from being treated as Free while offline.
-    setSubscriptionStatus(getCachedSubscription(userId)?.status ?? null);
+    const cachedSubscription = getCachedSubscription(userId);
+    setSubscriptionStatus(cachedSubscription?.status ?? null);
+    setSubscriptionPeriodEnd(cachedSubscription?.current_period_end ?? null);
   }, [session]);
 
   // `refresh` is pull-to-refresh (shows the spinner); `force` skips the
@@ -372,10 +378,7 @@ export default function DocumentsScreen() {
     });
   }, [documents, searchQuery, activeFolderId]);
 
-  const isPro =
-    subscriptionStatus === "trialing" ||
-    subscriptionStatus === "active" ||
-    subscriptionStatus === "past_due";
+  const isPro = hasProAccess(subscriptionStatus, subscriptionPeriodEnd);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>

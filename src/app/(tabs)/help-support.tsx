@@ -28,7 +28,7 @@ const FAQS = [
   {
     question: "What happens to my data if I cancel?",
     answer:
-      "Your documents and records stay in your account and remain accessible - cancelling only stops renewal of your subscription.",
+      "Your documents and records stay in your account and remain accessible. If you cancel after paying, Pro access continues until the end of the period you paid for.",
   },
   {
     question: "How do I get a receipt for my subscription?",

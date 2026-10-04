@@ -31,6 +31,15 @@ export async function ensureCalendarPermission(): Promise<boolean> {
   return status === "granted";
 }
 
+// Reads the current permission without prompting. The Calendar Sync toggle
+// is stored in AsyncStorage but the permission belongs to the OS, so the two
+// can drift apart (revoked in Settings, auto-reset for an unused app, or a
+// fresh install that restored app data but not permissions).
+export async function hasCalendarPermission(): Promise<boolean> {
+  const { status } = await Calendar.getCalendarPermissionsAsync();
+  return status === "granted";
+}
+
 async function findAppCalendarId(): Promise<string | null> {
   const calendars = await Calendar.getCalendarsAsync(
     Calendar.EntityTypes.EVENT,

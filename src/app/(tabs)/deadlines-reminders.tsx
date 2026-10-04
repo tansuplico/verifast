@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AppState,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -29,6 +30,7 @@ import { useIsOnline } from "@/hooks/use-network-status";
 import { usePushNotificationsToggle } from "@/hooks/use-push-notifications-toggle";
 import {
   ensureCalendarPermission,
+  hasCalendarPermission,
   removeReminderEvent,
   upsertReminderEvent,
 } from "@/lib/calendar-sync";
@@ -44,6 +46,7 @@ import {
 import { subscribeToSync, syncReminders } from "@/lib/sync";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
+import { useToast } from "@/providers/toast-provider";
 
 // Days-out window the top banner counts against ("upcoming deadlines in
 // the next 3 weeks").
@@ -52,6 +55,10 @@ const UPCOMING_WINDOW_DAYS = 21;
 // Overdue badge + the "N overdue" summary banner. Kept distinct from every
 // CATEGORY_STYLE color so it never reads as a category.
 const OVERDUE_COLOR = "#dc2626";
+
+// "N deadlines due in the next 3 weeks" banner - the app's teal accent, same
+// tinted treatment as the other two banners.
+const UPCOMING_BANNER_COLOR = "#0d9488";
 
 // Filled "Nothing due" banner. A step deeper than the app's teal (#0d9488)
 // so white text on it stays comfortably readable.
@@ -145,6 +152,7 @@ function ReminderSkeletonCard() {
 export default function DeadlinesRemindersScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  const { showToast } = useToast();
   const isOnline = useIsOnline();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -177,11 +185,53 @@ export default function DeadlinesRemindersScreen() {
     new Set(),
   );
 
+  // The stored flag says whether the user turned Calendar Sync on, but the
+  // permission itself belongs to the OS and can be lost without the app
+  // knowing (revoked in Settings, auto-reset for an unused app, a fresh
+  // install that restored app data but not permissions). Checked on mount
+  // and whenever the app returns to the foreground: if the flag is on but
+  // the permission is gone, the toggle is switched off so it never claims
+  // to be syncing when every save would fail. Events already on the
+  // calendar are left alone; turning it back on runs the usual backfill.
   useEffect(() => {
-    AsyncStorage.getItem(CALENDAR_SYNC_STORAGE_KEY).then((value) => {
-      if (value === "true") setCalendarSyncEnabled(true);
+    let cancelled = false;
+
+    async function syncFlagWithPermission() {
+      const stored = await AsyncStorage.getItem(CALENDAR_SYNC_STORAGE_KEY);
+      if (cancelled || stored !== "true") return;
+
+      let granted: boolean;
+      try {
+        granted = await hasCalendarPermission();
+      } catch (error) {
+        // Couldn't read the permission - leave the toggle as it was rather
+        // than switching sync off on a guess.
+        console.error("Failed to check calendar permission", error);
+        setCalendarSyncEnabled(true);
+        return;
+      }
+      if (cancelled) return;
+
+      if (granted) {
+        setCalendarSyncEnabled(true);
+        return;
+      }
+
+      setCalendarSyncEnabled(false);
+      await AsyncStorage.setItem(CALENDAR_SYNC_STORAGE_KEY, "false");
+      showToast("Calendar access was turned off, so sync is paused");
+    }
+
+    syncFlagWithPermission();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") syncFlagWithPermission();
     });
-  }, []);
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, [showToast]);
 
   // Local-first: the list always comes from the on-device database, so it
   // looks and behaves the same with or without a connection. Syncing with
@@ -254,11 +304,10 @@ export default function DeadlinesRemindersScreen() {
     return days >= 0 && days <= UPCOMING_WINDOW_DAYS;
   }).length;
   const overdueCount = reminders.filter((r) => daysUntil(r.dueDate) < 0).length;
-  // The plain "Nothing due" state renders as a filled banner (loading and
-  // error states stay as plain text), which replaces the summary's
-  // underline divider.
-  const showEmptyBanner =
-    upcomingCount === 0 &&
+  // The upcoming and "Nothing due" states both render as tinted banners
+  // (loading and error states stay as plain text), which replace the
+  // summary's underline divider.
+  const showSummaryBanner =
     !(isLoading && reminders.length === 0) &&
     !(loadError && reminders.length === 0);
 
@@ -599,7 +648,7 @@ export default function DeadlinesRemindersScreen() {
           <View
             style={[
               styles.summary,
-              showEmptyBanner && styles.summaryWithBanner,
+              showSummaryBanner && styles.summaryWithBanner,
             ]}
           >
             {isLoading && reminders.length === 0 ? (
@@ -613,14 +662,37 @@ export default function DeadlinesRemindersScreen() {
             ) : (
               <>
                 {upcomingCount > 0 ? (
-                  <View style={styles.summaryMain}>
-                    <ThemedText style={styles.summaryNumber}>
-                      {upcomingCount}
-                    </ThemedText>
-                    <ThemedText type="small" style={styles.summaryMuted}>
-                      {upcomingCount === 1 ? "deadline" : "deadlines"} due in
-                      the next 3 weeks
-                    </ThemedText>
+                  <View
+                    style={[
+                      styles.banner,
+                      { backgroundColor: `${UPCOMING_BANNER_COLOR}1A` },
+                    ]}
+                  >
+                    <Ionicons
+                      name="calendar-outline"
+                      size={20}
+                      color={UPCOMING_BANNER_COLOR}
+                    />
+                    <View style={styles.summaryMain}>
+                      <ThemedText
+                        style={[
+                          styles.summaryNumber,
+                          { color: EMPTY_BANNER_COLOR },
+                        ]}
+                      >
+                        {upcomingCount}
+                      </ThemedText>
+                      <ThemedText
+                        type="smallBold"
+                        style={[
+                          styles.bannerText,
+                          { color: EMPTY_BANNER_COLOR },
+                        ]}
+                      >
+                        {upcomingCount === 1 ? "deadline" : "deadlines"} due in
+                        the next 3 weeks
+                      </ThemedText>
+                    </View>
                   </View>
                 ) : (
                   <View
@@ -837,13 +909,14 @@ const styles = StyleSheet.create({
   },
   bannerText: { flex: 1 },
   summaryMain: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "baseline",
     gap: Spacing.two,
   },
   summaryNumber: {
-    fontSize: 32,
-    lineHeight: 36,
+    fontSize: 16,
+    lineHeight: 28,
     fontWeight: "700",
     color: "#1a1c20",
   },

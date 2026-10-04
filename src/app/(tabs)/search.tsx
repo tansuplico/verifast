@@ -17,6 +17,8 @@ import { DocumentPreviewModal } from "@/components/document-preview-modal";
 import { OfflineNotice } from "@/components/offline-notice";
 import { SkeletonBlock } from "@/components/skeleton";
 import { ThemedText } from "@/components/themed-text";
+import { ViewAcademicInfoModal } from "@/components/view-academic-info-modal";
+import type { AcademicInfoCategory } from "@/constants/academic-info-categories";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { useIsOnline } from "@/hooks/use-network-status";
 import {
@@ -28,7 +30,7 @@ import {
   getOfflineFileUri,
 } from "@/lib/offline-files";
 import { supabase } from "@/lib/supabase";
-import { showAlert, showComingSoon } from "@/providers/alert-provider";
+import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 const SEARCH_QUERY_MAX_LENGTH = 50;
@@ -46,10 +48,15 @@ type DocumentResult = {
   sync_status?: string;
 };
 
+// Carries everything ViewAcademicInfoModal needs, so tapping a result opens
+// the full entry without a second query (works the same online and offline).
 type AcademicInfoResult = {
   id: string;
   title: string;
-  category: "curriculum" | "announcement" | "activity";
+  category: AcademicInfoCategory;
+  content: string | null;
+  is_pinned: boolean;
+  posted_at: string;
 };
 
 type BrowseCategory = {
@@ -153,6 +160,9 @@ export default function SearchScreen() {
   const [previewDoc, setPreviewDoc] = useState<DocumentResult | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [isShowingCache, setIsShowingCache] = useState(false);
+  const [viewingInfo, setViewingInfo] = useState<AcademicInfoResult | null>(
+    null,
+  );
   const isOnline = useIsOnline();
 
   // Same open logic as Documents' handleDocPress: try a live signed URL
@@ -265,7 +275,7 @@ export default function SearchScreen() {
           : Promise.resolve({ data: [] as DocumentResult[], error: null }),
         supabase
           .from("academic_info")
-          .select("id, title, category")
+          .select("id, title, category, content, is_pinned, posted_at")
           .ilike("title", `%${trimmed}%`)
           .order("posted_at", { ascending: false })
           .limit(8),
@@ -470,7 +480,7 @@ export default function SearchScreen() {
                     <Pressable
                       key={info.id}
                       style={styles.resultRow}
-                      onPress={() => showComingSoon("Academic info details")}
+                      onPress={() => setViewingInfo(info)}
                     >
                       <View
                         style={[
@@ -500,6 +510,11 @@ export default function SearchScreen() {
           </>
         )}
       </ScrollView>
+      <ViewAcademicInfoModal
+        visible={!!viewingInfo}
+        onClose={() => setViewingInfo(null)}
+        item={viewingInfo}
+      />
       <DocumentPreviewModal
         visible={!!previewDoc}
         imageUrl={previewImageUrl}

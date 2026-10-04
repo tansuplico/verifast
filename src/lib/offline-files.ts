@@ -13,6 +13,42 @@ import {
 // break "available offline" for something the user was relying on.
 const OFFLINE_DOCS_DIR = new Directory(Paths.document, "verifast-offline-docs");
 
+// What downloaded_files.local_uri holds. New rows store just the file's name
+// inside OFFLINE_DOCS_DIR, never an absolute path: the app's container path
+// can change (iOS can relocate it after an update or a restore), and the
+// directory is re-resolved from Paths.document on every launch, so a bare
+// name keeps working where a stored absolute URI would silently go stale.
+// Rows written by older versions hold an absolute file:// URI; those are
+// still understood - the name is taken from the end of the URI, with the
+// stored URI itself as a fallback.
+function candidateFiles(stored: string): File[] {
+  if (!stored.startsWith("file:")) {
+    return stored ? [new File(OFFLINE_DOCS_DIR, stored)] : [];
+  }
+  const files: File[] = [];
+  const tail = stored.split("/").pop() ?? "";
+  let name = tail;
+  try {
+    name = decodeURIComponent(tail);
+  } catch {
+    // Not percent-encoded after all - use it as is.
+  }
+  if (name) files.push(new File(OFFLINE_DOCS_DIR, name));
+  files.push(new File(stored));
+  return files;
+}
+
+function findExistingFile(stored: string): File | null {
+  for (const file of candidateFiles(stored)) {
+    try {
+      if (file.exists) return file;
+    } catch {
+      // Unreadable candidate - try the next one.
+    }
+  }
+  return null;
+}
+
 function ensureDir() {
   if (!OFFLINE_DOCS_DIR.exists) {
     OFFLINE_DOCS_DIR.create({ intermediates: true, idempotent: true });
@@ -24,13 +60,14 @@ function ensureDir() {
 // clears app storage outright, even from the documents directory - so this
 // double-checks rather than trusting the DB row alone).
 export function getOfflineFileUri(documentId: string): string | null {
-  const uri = getLocalFileUri(documentId);
-  if (!uri) return null;
-  if (!new File(uri).exists) {
+  const stored = getLocalFileUri(documentId);
+  if (!stored) return null;
+  const file = findExistingFile(stored);
+  if (!file) {
     forgetDownloadedFile(documentId);
     return null;
   }
-  return uri;
+  return file.uri;
 }
 
 // Downloads a document's current signed URL to local storage for offline
@@ -48,9 +85,10 @@ export async function cacheDocumentFileForOffline(
   try {
     if (getOfflineFileUri(documentId)) return;
     ensureDir();
-    const destination = new File(OFFLINE_DOCS_DIR, `${documentId}-${fileName}`);
-    const downloaded = await File.downloadFileAsync(signedUrl, destination);
-    recordDownloadedFile(documentId, downloaded.uri);
+    const storedName = `${documentId}-${fileName}`;
+    const destination = new File(OFFLINE_DOCS_DIR, storedName);
+    await File.downloadFileAsync(signedUrl, destination);
+    recordDownloadedFile(documentId, storedName);
   } catch (error) {
     console.error("Failed to cache document for offline use", error);
   }
@@ -60,16 +98,19 @@ export async function cacheDocumentFileForOffline(
 // the document itself is deleted, so a deleted document's file doesn't sit
 // on the phone taking up space. Best-effort: a missing file is fine.
 export function removeOfflineFile(documentId: string) {
-  const uri = getLocalFileUri(documentId);
-  if (uri) {
-    try {
-      const file = new File(uri);
-      if (file.exists) file.delete();
-    } catch (error) {
-      console.error("Failed to delete offline file", error);
-    }
-  }
+  const stored = getLocalFileUri(documentId);
+  if (stored) removeStoredOfflineFile(stored);
   forgetDownloadedFile(documentId);
+}
+
+// Deletes the file a downloaded_files value points at, whichever form it is
+// in (see candidateFiles). Best-effort, like the rest of the cleanup.
+export function removeStoredOfflineFile(stored: string) {
+  try {
+    findExistingFile(stored)?.delete();
+  } catch (error) {
+    console.error("Failed to delete offline file", error);
+  }
 }
 
 // Copies a freshly picked file into persistent app storage so it can be
@@ -77,14 +118,17 @@ export function removeOfflineFile(documentId: string) {
 // the OS may clear at any time, and an upload queued while offline can wait
 // a long while. The copy also doubles as the document's offline copy, so a
 // document you just added opens without a connection. Returns the copy's
-// real size, which is more trustworthy than what the picker reported.
+// real size, which is more trustworthy than what the picker reported, and
+// the copy's file name - that name (not the uri) is what gets recorded as the
+// document's offline copy.
 export async function copyPickedFileForUpload(
   documentId: string,
   extension: string,
   source: { uri: string; base64?: string },
-): Promise<{ uri: string; size: number | null }> {
+): Promise<{ fileName: string; uri: string; size: number | null }> {
   ensureDir();
-  const destination = new File(OFFLINE_DOCS_DIR, `${documentId}.${extension}`);
+  const fileName = `${documentId}.${extension}`;
+  const destination = new File(OFFLINE_DOCS_DIR, fileName);
 
   try {
     await new File(source.uri).copy(destination, { overwrite: true });
@@ -96,7 +140,7 @@ export async function copyPickedFileForUpload(
     destination.write(new Uint8Array(decode(source.base64)));
   }
 
-  return { uri: destination.uri, size: destination.size ?? null };
+  return { fileName, uri: destination.uri, size: destination.size ?? null };
 }
 
 // The bytes of a document's local copy, for uploading. Null if the file is

@@ -27,11 +27,22 @@ const REAPPEAR_VISIBLE_MS = 3000;
 // a local database, and it only runs while offline.
 const COUNT_POLL_MS = 2000;
 
+// When the connection comes back after the pill was shown, it confirms the
+// recovery: "Back online" straight away if nothing was queued, or - if
+// edits were waiting - "Back online · synced" once the queue has emptied.
+// The queue is checked this often, for at most SYNC_WAIT_MAX_MS; if it never
+// empties (the server is down, say) nothing is claimed and the pill just
+// stays away.
+const SYNCED_VISIBLE_MS = 2500;
+const SYNC_POLL_MS = 500;
+const SYNC_WAIT_MAX_MS = 30000;
+
 // One app-wide "you're offline" indicator, mounted once in the root layout
 // so every signed-in screen gets it without any per-screen code. It speaks
 // up when something changes and then gets out of the way: it appears when
 // the connection drops, fades out after a few seconds, and briefly returns
-// each time a new edit is queued to confirm it's safe. Only shows for a
+// each time a new edit is queued to confirm it's safe. When the connection
+// returns it gives a short "back online" confirmation. Only shows for a
 // fully signed-in user - the login, password-reset and 2FA screens never get
 // it - using the same condition that gates the (tabs) stack in the root
 // layout.
@@ -46,6 +57,13 @@ function OfflinePillContent({ userId }: { userId: string }) {
   const insets = useSafeAreaInsets();
   const [visible, setVisible] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  // Text for the "back online" confirmation; null while the pill is the
+  // offline one. Kept after the confirmation hides so its exit animation
+  // still has a label to fade out with.
+  const [onlineLabel, setOnlineLabel] = useState<string | null>(null);
+  // Whether the pill was actually shown during the current offline episode,
+  // so a half-second dropout never produces a "back online" message.
+  const shownThisEpisode = useRef(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The queue size at the last check, so a *rise* (a new edit) can be told
   // apart from a fall (a sync clearing things) or no change at all.
@@ -67,9 +85,62 @@ function OfflinePillContent({ userId }: { userId: string }) {
   // moment it returns, so the next outage starts fresh.
   useEffect(() => {
     if (isOnline) {
+      if (!shownThisEpisode.current) {
+        dismiss();
+        return;
+      }
+      shownThisEpisode.current = false;
+
+      let queued = 0;
+      try {
+        queued = getPendingChangeCount(userId);
+      } catch {
+        // A failed local read is treated as nothing queued.
+      }
+
+      // Nothing was waiting: swap the offline pill's text in place.
+      if (queued === 0) {
+        setOnlineLabel("Back online");
+        showFor(SYNCED_VISIBLE_MS);
+        return dismiss;
+      }
+
+      // Edits were waiting: hide the stale "will sync later" pill and only
+      // confirm once the queue has actually emptied.
       dismiss();
-      return;
+      let done = false;
+      const stop = () => {
+        done = true;
+        clearInterval(interval);
+        clearTimeout(giveUp);
+        unsubscribe();
+      };
+      const checkSynced = () => {
+        if (done) return;
+        try {
+          if (getPendingChangeCount(userId) > 0) return;
+        } catch {
+          return;
+        }
+        stop();
+        setOnlineLabel("Back online · synced");
+        showFor(SYNCED_VISIBLE_MS);
+      };
+      const interval = setInterval(checkSynced, SYNC_POLL_MS);
+      const giveUp = setTimeout(stop, SYNC_WAIT_MAX_MS);
+      const unsubscribe = subscribeToSync(checkSynced);
+
+      return () => {
+        stop();
+        dismiss();
+      };
     }
+
+    const showPill = (durationMs: number) => {
+      shownThisEpisode.current = true;
+      setOnlineLabel(null);
+      showFor(durationMs);
+    };
 
     let baseline = 0;
     try {
@@ -81,7 +152,7 @@ function OfflinePillContent({ userId }: { userId: string }) {
     setPendingCount(baseline);
 
     const firstShow = setTimeout(
-      () => showFor(FIRST_VISIBLE_MS),
+      () => showPill(FIRST_VISIBLE_MS),
       SHOW_DELAY_MS,
     );
 
@@ -89,7 +160,7 @@ function OfflinePillContent({ userId }: { userId: string }) {
       try {
         const count = getPendingChangeCount(userId);
         setPendingCount(count);
-        if (count > lastCount.current) showFor(REAPPEAR_VISIBLE_MS);
+        if (count > lastCount.current) showPill(REAPPEAR_VISIBLE_MS);
         lastCount.current = count;
       } catch {
         // Keep the last known count.
@@ -113,11 +184,12 @@ function OfflinePillContent({ userId }: { userId: string }) {
   );
 
   const label =
-    pendingCount > 0
+    onlineLabel ??
+    (pendingCount > 0
       ? `Offline · ${pendingCount} ${
           pendingCount === 1 ? "change" : "changes"
         } will sync later`
-      : "Offline · showing saved data";
+      : "Offline · showing saved data");
 
   // The wrapper stays mounted so the pill's exit animation can play; it's
   // box-none so only the pill itself ever catches a touch.
@@ -137,7 +209,15 @@ function OfflinePillContent({ userId }: { userId: string }) {
             accessibilityRole="button"
             accessibilityLabel={`${label}. Tap to dismiss.`}
           >
-            <Ionicons name="cloud-offline-outline" size={15} color="#fbbf24" />
+            {onlineLabel ? (
+              <Ionicons name="checkmark-circle" size={15} color="#34d399" />
+            ) : (
+              <Ionicons
+                name="cloud-offline-outline"
+                size={15}
+                color="#fbbf24"
+              />
+            )}
             <ThemedText type="smallBold" style={styles.text}>
               {label}
             </ThemedText>

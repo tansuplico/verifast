@@ -278,7 +278,7 @@ export function AddDocumentModal({
         file_size: fileSize,
       });
       // Also makes the new document open straight away, even offline.
-      recordDownloadedFile(id, copied.uri);
+      recordDownloadedFile(id, copied.fileName);
 
       const online = await checkIsOnline();
       requestSync(userId);

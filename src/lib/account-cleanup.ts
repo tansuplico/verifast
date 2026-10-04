@@ -1,5 +1,4 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { File } from "expo-file-system";
 
 import { removeReminderEvent } from "@/lib/calendar-sync";
 import { clearExportedFiles } from "@/lib/export-files";
@@ -8,6 +7,7 @@ import {
   getLocalArtifactsForUser,
   wipeCachedDataForUser,
 } from "@/lib/offline-db";
+import { removeStoredOfflineFile } from "@/lib/offline-files";
 
 // Must match RECENT_SEARCHES_KEY in app/(tabs)/search.tsx. Recent searches
 // are typed document and academic-info names, so they're personal data too.
@@ -39,13 +39,11 @@ export async function wipeLocalAccountData(userId: string) {
     artifacts.calendarEventIds.map((eventId) => removeReminderEvent(eventId)),
   );
 
-  for (const uri of artifacts.fileUris) {
-    try {
-      const file = new File(uri);
-      if (file.exists) file.delete();
-    } catch {
-      // File already gone or unreadable - the row is wiped below anyway.
-    }
+  // These hold file names (or, for older rows, absolute URIs) - the helper
+  // understands both and is best-effort: a file that's already gone or
+  // unreadable is fine, since the row is wiped below anyway.
+  for (const stored of artifacts.fileUris) {
+    removeStoredOfflineFile(stored);
   }
 
   clearExportedFiles();

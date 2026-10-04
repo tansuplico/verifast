@@ -18,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
+import { checkIsOnline } from "@/hooks/use-network-status";
 
 // First-pass scope is success confirmations only ("Reminder saved", "Document
 // deleted", etc.) - deliberately no error variant. Errors still go through
@@ -32,6 +33,11 @@ const ANIMATE_OUT_MS = 180;
 
 type ToastContextValue = {
   showToast: (message: string) => void;
+  // For "saved / deleted" confirmations of local-first writes. Only shows
+  // while online: offline, the OfflinePill already confirms the queued
+  // change (and both sit at the top of the screen, so showing both draws
+  // them on top of each other).
+  showSavedToast: (message: string) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -73,13 +79,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [opacity, translateY, hide],
   );
 
+  const showSavedToast = useCallback(
+    (nextMessage: string) => {
+      void checkIsOnline().then((online) => {
+        if (online) showToast(nextMessage);
+      });
+    },
+    [showToast],
+  );
+
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
     transform: [{ translateY: translateY.value }],
   }));
 
   return (
-    <ToastContext.Provider value={{ showToast }}>
+    <ToastContext.Provider value={{ showToast, showSavedToast }}>
       {children}
       {message && (
         <SafeAreaView

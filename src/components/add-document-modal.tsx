@@ -282,11 +282,8 @@ export function AddDocumentModal({
 
       const online = await checkIsOnline();
       requestSync(userId);
-      showToast(
-        online
-          ? "Document added"
-          : "Saved - it will upload when you're back online",
-      );
+      // Offline, the OfflinePill confirms the queued upload instead.
+      if (online) showToast("Document added");
       reset();
       onUploaded();
       onClose();

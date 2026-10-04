@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useRef, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -22,6 +21,7 @@ import {
   saveAcademicInfoLocal,
 } from "@/lib/offline-db";
 import { requestSync } from "@/lib/sync";
+import { showAlert } from "@/providers/alert-provider";
 import { useToast } from "@/providers/toast-provider";
 
 const TITLE_MAX_LENGTH = 60;
@@ -56,7 +56,7 @@ export function AddAcademicInfoModal({
   onSaved,
   editingItem,
 }: AddAcademicInfoModalProps) {
-  const { showToast } = useToast();
+  const { showSavedToast } = useToast();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [category, setCategory] = useState<AcademicInfoCategory>("curriculum");
@@ -99,11 +99,16 @@ export function AddAcademicInfoModal({
     } catch (error) {
       hasSubmittedRef.current = false;
       console.error("Failed to save academic info locally", error);
-      Alert.alert("Couldn't save", "Something went wrong saving this entry.");
+      showAlert(
+        "Couldn't save",
+        "Something went wrong saving this entry.",
+        undefined,
+        { tone: "danger" },
+      );
       return;
     }
 
-    showToast(editingItem ? "Entry updated" : "Entry saved");
+    showSavedToast(editingItem ? "Entry updated" : "Entry saved");
     requestSync(userId);
     onSaved();
     onClose();
@@ -111,7 +116,7 @@ export function AddAcademicInfoModal({
 
   function handleDelete() {
     if (!editingItem || !userId) return;
-    Alert.alert(
+    showAlert(
       "Delete entry",
       `Are you sure you want to delete "${editingItem.title}"? This can't be undone.`,
       [
@@ -128,14 +133,16 @@ export function AddAcademicInfoModal({
             } catch (error) {
               hasSubmittedRef.current = false;
               console.error("Failed to delete academic info locally", error);
-              Alert.alert(
+              showAlert(
                 "Couldn't delete entry",
                 "Something went wrong deleting this entry.",
+                undefined,
+                { tone: "danger" },
               );
               return;
             }
 
-            showToast("Entry deleted");
+            showSavedToast("Entry deleted");
             requestSync(userId);
             onSaved();
             onClose();

@@ -60,7 +60,7 @@ export function DocumentActionsMenu({
   const [mode, setMode] = useState<Mode>("menu");
   const [newName, setNewName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const { showToast } = useToast();
+  const { showSavedToast } = useToast();
   const { session } = useAuth();
 
   useEffect(() => {
@@ -103,7 +103,7 @@ export function DocumentActionsMenu({
     }
 
     requestSync(userId);
-    showToast(successToast);
+    showSavedToast(successToast);
     onDone();
     onClose();
   }
@@ -146,7 +146,7 @@ export function DocumentActionsMenu({
     const userId = session.user.id;
     retryDocumentSync(userId, document.id);
     requestSync(userId);
-    showToast("Trying again");
+    showSavedToast("Trying again");
     onRetried();
     onClose();
   }

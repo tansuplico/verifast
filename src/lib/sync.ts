@@ -813,5 +813,9 @@ export async function syncReminders(
 // Fire-and-forget version for call sites that just changed local data and
 // want it pushed as soon as possible (e.g. right after a save).
 export function requestSync(userId: string) {
+  // Offline, a sync exits before it reaches its own notify, so tell
+  // listeners about the local write right away - the OfflinePill uses this
+  // to confirm a queued change immediately instead of on its next poll.
+  notifyListeners();
   void syncAll(userId, { force: true });
 }

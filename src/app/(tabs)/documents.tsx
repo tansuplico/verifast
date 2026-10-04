@@ -134,7 +134,7 @@ function DocumentSkeletonRow() {
 
 export default function DocumentsScreen() {
   const { session } = useAuth();
-  const { showToast } = useToast();
+  const { showSavedToast } = useToast();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -321,7 +321,7 @@ export default function DocumentsScreen() {
                 return;
               }
               requestSync(userId);
-              showToast("Document deleted");
+              showSavedToast("Document deleted");
               reloadFromLocal();
             },
           },
@@ -329,7 +329,7 @@ export default function DocumentsScreen() {
         { icon: "trash-outline" },
       );
     },
-    [session, reloadFromLocal, showToast],
+    [session, reloadFromLocal, showSavedToast],
   );
 
   useFocusEffect(
@@ -637,6 +637,13 @@ export default function DocumentsScreen() {
                 </View>
               </Pressable>
             ))}
+            {/* The cards grow (flexGrow) to fill their row, so a lone last
+                card - the only one in the folder, or the odd one out -
+                would stretch to full width. An invisible spacer takes the
+                empty half so it stays the same width as every other card. */}
+            {filteredDocuments.length % 2 === 1 && (
+              <View style={styles.fileGridSpacer} pointerEvents="none" />
+            )}
           </View>
         )}
       </ScrollView>
@@ -807,6 +814,10 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     padding: Spacing.three,
     gap: Spacing.one,
+  },
+  fileGridSpacer: {
+    flexBasis: "47%",
+    flexGrow: 1,
   },
   fileGridIconBadge: {
     width: 44,

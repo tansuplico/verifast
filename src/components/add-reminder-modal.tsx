@@ -93,7 +93,7 @@ export function AddReminderModal({
   calendarSyncEnabled,
   pushNotificationsEnabled,
 }: AddReminderModalProps) {
-  const { showToast } = useToast();
+  const { showToast, showSavedToast } = useToast();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<ReminderCategory>("document");
   const [dueDate, setDueDate] = useState(new Date());
@@ -236,11 +236,15 @@ export function AddReminderModal({
         notificationFailed && "reminder alert",
       ].filter(Boolean) as string[];
 
-      showToast(
-        failures.length > 0
-          ? `${savedLabel}, but couldn't sync to ${failures.join(" or ")}`
-          : savedLabel,
-      );
+      // A calendar/alert failure is a warning the pill doesn't cover, so
+      // it always shows; a plain "saved" only shows online.
+      if (failures.length > 0) {
+        showToast(
+          `${savedLabel}, but couldn't sync to ${failures.join(" or ")}`,
+        );
+      } else {
+        showSavedToast(savedLabel);
+      }
     }, 260);
   }
 

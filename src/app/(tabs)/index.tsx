@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -28,8 +29,14 @@ import {
   getCachedDocumentSummary,
   getCachedProfile,
   getCachedRequests,
+  getCachedSubscription,
   getUpcomingReminders,
 } from "@/lib/offline-db";
+import {
+  FREE_DOCUMENT_LIMIT,
+  getPlanEndingSoon,
+  type PlanEndingSoon,
+} from "@/lib/subscription";
 import { allSyncOk, subscribeToSync, syncAll } from "@/lib/sync";
 import { useAuth } from "@/providers/auth-provider";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -87,6 +94,18 @@ function formatShortDate(dateString: string) {
   });
 }
 
+// Which end date the user last dismissed the plan warning for, per account.
+// A renewed or changed plan has a different end date, so it warns again.
+function planWarningDismissKey(userId: string) {
+  return `verifast:planWarningDismissed:${userId}`;
+}
+
+function describeDaysUntil(daysUntil: number) {
+  if (daysUntil <= 0) return "today";
+  if (daysUntil === 1) return "tomorrow";
+  return `in ${daysUntil} days`;
+}
+
 function iconForMimeType(
   mimeType: string | null,
 ): keyof typeof Ionicons.glyphMap {
@@ -110,6 +129,32 @@ export default function HomeScreen() {
   const [documentAlerts, setDocumentAlerts] = useState<DocumentAlert[]>([]);
   const [requestPreviews, setRequestPreviews] = useState<RequestPreview[]>([]);
   const [loadError, setLoadError] = useState(false);
+  const [planWarning, setPlanWarning] = useState<PlanEndingSoon | null>(null);
+  // undefined until the stored dismissal has been read, so the banner
+  // doesn't flash for a moment on a warning the user already closed.
+  const [dismissedEndsAt, setDismissedEndsAt] = useState<
+    string | null | undefined
+  >(undefined);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId) return;
+    AsyncStorage.getItem(planWarningDismissKey(userId))
+      .then((value) => setDismissedEndsAt(value))
+      .catch(() => setDismissedEndsAt(null));
+  }, [session?.user.id]);
+
+  function dismissPlanWarning() {
+    const userId = session?.user.id;
+    if (!userId || !planWarning) return;
+    setDismissedEndsAt(planWarning.endsAt);
+    AsyncStorage.setItem(
+      planWarningDismissKey(userId),
+      planWarning.endsAt,
+    ).catch(() => {
+      // Dismissal just won't survive a restart.
+    });
+  }
 
   // Everything on Home is built from the on-device copies (documents,
   // reminders, requests, profile), so it looks the same with or without a
@@ -126,6 +171,7 @@ export default function HomeScreen() {
 
     setFullName(profile?.full_name ?? null);
     setDocumentsCount(documents.count);
+    setPlanWarning(getPlanEndingSoon(getCachedSubscription(userId)));
 
     setRecentDocuments(
       documents.recent.map((doc, index) => ({
@@ -281,6 +327,43 @@ export default function HomeScreen() {
         {loadError && <LoadErrorState onRetry={() => loadHomeData()} />}
 
         <View style={styles.bodyContent}>
+          {planWarning &&
+            dismissedEndsAt !== undefined &&
+            dismissedEndsAt !== planWarning.endsAt && (
+              <View style={styles.planWarning}>
+                <View style={styles.planWarningIcon}>
+                  <Ionicons name="time-outline" size={18} color="#b45309" />
+                </View>
+                <View style={styles.planWarningText}>
+                  <ThemedText type="smallBold" style={styles.planWarningTitle}>
+                    {planWarning.kind === "trial"
+                      ? "Your free trial ends "
+                      : "Your Pro plan ends "}
+                    {describeDaysUntil(planWarning.daysUntil)}
+                  </ThemedText>
+                  <ThemedText type="small" style={styles.planWarningDetail}>
+                    {planWarning.kind === "trial" &&
+                    documentsCount >= FREE_DOCUMENT_LIMIT
+                      ? `You have ${documentsCount} documents. After the trial you won't be able to add more until you upgrade.`
+                      : planWarning.kind === "trial"
+                        ? "Upgrade to keep unlimited storage and Backup & Recovery."
+                        : "Pay again to keep unlimited storage and Backup & Recovery."}
+                  </ThemedText>
+                  <Pressable onPress={() => router.push("/subscription")}>
+                    <ThemedText type="smallBold" style={styles.planWarningLink}>
+                      {planWarning.kind === "trial" ? "Upgrade" : "Renew"}
+                    </ThemedText>
+                  </Pressable>
+                </View>
+                <Pressable
+                  onPress={dismissPlanWarning}
+                  hitSlop={8}
+                  accessibilityLabel="Dismiss"
+                >
+                  <Ionicons name="close" size={18} color="#92400e" />
+                </Pressable>
+              </View>
+            )}
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <ThemedText type="smallBold" style={styles.sectionTitle}>
@@ -487,6 +570,19 @@ const styles = StyleSheet.create({
   storageSubtext: { color: "rgba(255,255,255,0.8)" },
   body: { flex: 1 },
   bodyContent: { padding: Spacing.four, gap: Spacing.four },
+  planWarning: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.two,
+    backgroundColor: "#f59e0b1A",
+    borderRadius: Spacing.three,
+    padding: Spacing.three,
+  },
+  planWarningIcon: { paddingTop: 1 },
+  planWarningText: { flex: 1, gap: 2 },
+  planWarningTitle: { color: "#92400e" },
+  planWarningDetail: { color: "#92400e" },
+  planWarningLink: { color: "#b45309", marginTop: Spacing.one },
   section: {
     backgroundColor: "#ffffff",
     borderRadius: Spacing.three,

@@ -18,7 +18,7 @@ import { DocumentActionsMenu } from "@/components/document-actions-menu";
 import { DocumentPreviewModal } from "@/components/document-preview-modal";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
-import { hasProAccess } from "@/lib/subscription";
+import { FREE_DOCUMENT_LIMIT, hasProAccess } from "@/lib/subscription";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -56,8 +56,6 @@ const CATEGORY_ORDER: FolderCategory[] = [
   "identification",
   "forms",
 ];
-
-const FREE_DOCUMENT_LIMIT = 15;
 
 type SubscriptionStatus =
   | "trialing"

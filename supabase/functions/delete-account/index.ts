@@ -73,9 +73,11 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Files first. If anything fails here we stop *before* touching the
-    // account, so the user can simply retry - nothing is half-deleted from
-    // their point of view, and re-running is safe (an already-emptied
-    // folder just lists nothing).
+    // account, so the account is intact and the user can simply retry.
+    // This is not fully atomic, though: if the files are removed and the
+    // final deleteUser() below then fails, the account survives with its
+    // database rows but without its files until the retry. Re-running is
+    // safe either way (an already-emptied folder just lists nothing).
     for (const bucket of USER_FILE_BUCKETS) {
       await emptyUserFolder(admin, bucket, user.id);
     }

@@ -53,7 +53,7 @@ export default function ForgotPasswordScreen() {
     setIsSubmitting(false);
 
     if (error) {
-      showAlert("Invalid code", error, undefined, { tone: "danger" });
+      showAlert("Couldn't verify code", error, undefined, { tone: "danger" });
       return;
     }
     // Success establishes a session and flips isPasswordRecovery, so the

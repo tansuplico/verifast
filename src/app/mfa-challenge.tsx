@@ -63,7 +63,7 @@ export default function MfaChallengeScreen() {
         rememberDevice,
       );
       if (error) {
-        showAlert("Invalid code", error, undefined, { tone: "danger" });
+        showAlert("Couldn't verify code", error, undefined, { tone: "danger" });
       }
       // Success flips needsEmailOtpChallenge - the root layout's guard
       // takes it from here and routes into the app.

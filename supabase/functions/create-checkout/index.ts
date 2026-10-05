@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
               success_url: `${SUPABASE_URL}/functions/v1/checkout-redirect?result=success`,
               cancel_url: `${SUPABASE_URL}/functions/v1/checkout-redirect?result=cancel`,
               reference_number: user.id,
-              send_email_receipt: false,
+              send_email_receipt: true,
               metadata: { user_id: user.id },
             },
           },

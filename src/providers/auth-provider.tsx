@@ -13,10 +13,12 @@ import {
 } from "react";
 
 import { wipeLocalAccountData } from "@/lib/account-cleanup";
+import { friendlyAuthError } from "@/lib/auth-errors";
 import { clearExportedFiles } from "@/lib/export-files";
 import { cancelAllReminderNotifications } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { suspendSync } from "@/lib/sync";
+import { showAlert } from "@/providers/alert-provider";
 
 type AuthContextValue = {
   session: Session | null;
@@ -106,6 +108,36 @@ async function markOtpSentNow(userId: string) {
   );
 }
 
+// When Google/Supabase can't finish an OAuth flow (e.g. the Google account
+// is already linked to a different user) the browser is still redirected
+// back to the app - but with error_description / error_code in the URL and
+// no tokens. expo-auth-session's getQueryParams only reads its own
+// `errorCode` param, so those fields end up in `params` and must be read
+// explicitly or the failure is invisible.
+function oauthRedirectError(
+  params: Record<string, string>,
+  errorCode: string | null | undefined,
+): string | null {
+  if (errorCode) return errorCode;
+  const description = params.error_description ?? "";
+  if (!description && !params.error && !params.error_code) return null;
+
+  const text = description.toLowerCase();
+  if (
+    params.error_code === "identity_already_exists" ||
+    text.includes("already linked to another user")
+  ) {
+    return "That Google account is already linked to a different VeriFast account. Use a different Google account, or unlink it from the other account first.";
+  }
+  if (text.includes("already linked")) {
+    return "That Google account is already linked to your account.";
+  }
+  if (params.error === "access_denied") {
+    return "Google access was denied.";
+  }
+  return description || "Google sign-in couldn't be completed.";
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -142,15 +174,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         options: { shouldCreateUser: false },
       });
       if (error) {
-        // Surfaced in logs only - the challenge screen is already up,
-        // and the user's own "Resend" retries this same call.
+        // The challenge screen is already up, so say why no code is coming;
+        // the user's own "Resend" retries this same call.
         console.warn("[2fa] failed to send challenge code:", error.message);
+        showAlert("Couldn't send code", friendlyAuthError(error), undefined, {
+          tone: "danger",
+        });
       } else {
         await markOtpSentNow(user.id);
         setOtpResendAvailableAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
       }
     } catch (err) {
       console.warn("[2fa] failed to send challenge code:", err);
+      showAlert("Couldn't send code", friendlyAuthError(err), undefined, {
+        tone: "danger",
+      });
     }
   }
 
@@ -198,7 +236,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Signed up but never entered the emailed code - the screen sends
           // them to the code step instead of showing a dead-end error.
           return {
-            error: error.message,
+            error: friendlyAuthError(error),
             needsEmailConfirmation: error.code === "email_not_confirmed",
           };
         }
@@ -212,7 +250,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           options: { data: { full_name: fullName } },
         });
         return {
-          error: error?.message ?? null,
+          error: error ? friendlyAuthError(error) : null,
           needsEmailConfirmation: !error && !data.session,
         };
       },
@@ -227,14 +265,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           token: code,
           type: "email",
         });
-        return { error: error?.message ?? null };
+        return { error: error ? friendlyAuthError(error) : null };
       },
       async resendSignUpCode(email) {
         const { error } = await supabase.auth.resend({
           type: "signup",
           email,
         });
-        return { error: error?.message ?? null };
+        return { error: error ? friendlyAuthError(error) : null };
       },
       async signOut() {
         // Clear this device's trust for the current user before signing
@@ -294,7 +332,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // No redirectTo - the email carries a 8-digit code, not a link,
         // so there's no deep link for the app to catch.
         const { error } = await supabase.auth.resetPasswordForEmail(email);
-        return { error: error?.message ?? null };
+        return { error: error ? friendlyAuthError(error) : null };
       },
       async verifyPasswordResetCode(email, code) {
         const { error } = await supabase.auth.verifyOtp({
@@ -310,7 +348,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // the app.
           setIsPasswordRecovery(true);
         }
-        return { error: error?.message ?? null };
+        return { error: error ? friendlyAuthError(error) : null };
       },
       async updatePassword(newPassword) {
         const { error } = await supabase.auth.updateUser({
@@ -320,7 +358,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Recovery is resolved - let the normal session guard take over.
           setIsPasswordRecovery(false);
         }
-        return { error: error?.message ?? null };
+        return { error: error ? friendlyAuthError(error) : null };
       },
       async signInWithGoogle() {
         // skipBrowserRedirect + openAuthSessionAsync lets us capture the
@@ -333,7 +371,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           options: { redirectTo, skipBrowserRedirect: true },
         });
         if (error) {
-          return { error: error.message };
+          return { error: friendlyAuthError(error) };
         }
 
         const result = await WebBrowser.openAuthSessionAsync(
@@ -346,8 +384,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const { params, errorCode } = QueryParams.getQueryParams(result.url);
-        if (errorCode) {
-          return { error: errorCode };
+        const redirectError = oauthRedirectError(params, errorCode);
+        if (redirectError) {
+          return { error: redirectError };
         }
         if (!params.access_token || !params.refresh_token) {
           return { error: "Google sign-in didn't return a session." };
@@ -359,7 +398,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             refresh_token: params.refresh_token,
           });
         if (sessionError) {
-          return { error: sessionError.message };
+          return { error: friendlyAuthError(sessionError) };
         }
         await maybeStartEmailOtpChallenge(sessionData.user);
         return { error: null };
@@ -379,7 +418,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           options: { redirectTo, skipBrowserRedirect: true },
         });
         if (error) {
-          return { error: error.message };
+          return { error: friendlyAuthError(error) };
         }
 
         const result = await WebBrowser.openAuthSessionAsync(
@@ -388,12 +427,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         );
         if (result.type !== "success") {
           // User cancelled or dismissed the browser - not a real error.
+          if (__DEV__)
+            console.log("[link-google] browser result:", result.type);
           return { error: null };
         }
 
         const { params, errorCode } = QueryParams.getQueryParams(result.url);
-        if (errorCode) {
-          return { error: errorCode };
+        const redirectError = oauthRedirectError(params, errorCode);
+        if (redirectError) {
+          return { error: redirectError };
         }
         if (!params.access_token || !params.refresh_token) {
           return { error: "Linking didn't return an updated session." };
@@ -407,7 +449,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           refresh_token: params.refresh_token,
         });
         if (sessionError) {
-          return { error: sessionError.message };
+          return { error: friendlyAuthError(sessionError) };
         }
         return { error: null };
       },
@@ -415,7 +457,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data, error: identitiesError } =
           await supabase.auth.getUserIdentities();
         if (identitiesError) {
-          return { error: identitiesError.message };
+          return { error: friendlyAuthError(identitiesError) };
         }
         const googleIdentity = data.identities.find(
           (identity) => identity.provider === "google",
@@ -428,13 +470,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // here - whatever error it returns (including that one) just
         // surfaces to the caller as-is.
         const { error } = await supabase.auth.unlinkIdentity(googleIdentity);
-        return { error: error?.message ?? null };
+        return { error: error ? friendlyAuthError(error) : null };
       },
       async setTwoFactorEnabled(enabled) {
         const { error } = await supabase.auth.updateUser({
           data: { two_factor_enabled: enabled },
         });
-        return { error: error?.message ?? null };
+        return { error: error ? friendlyAuthError(error) : null };
       },
       async verifyEmailOtpChallenge(code, rememberDevice) {
         if (!pendingOtpEmail) {
@@ -447,7 +489,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             type: "email",
           });
           if (error) {
-            return { error: error.message };
+            return { error: friendlyAuthError(error) };
           }
           if (rememberDevice && data.user) {
             await setDeviceTrusted(data.user.id, true);
@@ -460,11 +502,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // on the setDeviceTrusted write) surfaces as a normal error
           // instead of throwing past the caller and leaving its
           // isSubmitting flag stuck true forever.
-          const message =
-            err instanceof Error
-              ? err.message
-              : "Something went wrong. Please try again.";
-          return { error: message };
+          return { error: friendlyAuthError(err) };
         }
       },
       async resendEmailOtpChallenge() {
@@ -490,13 +528,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             await markOtpSentNow(userId);
             setOtpResendAvailableAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
           }
-          return { error: error?.message ?? null };
+          return { error: error ? friendlyAuthError(error) : null };
         } catch (err) {
-          const message =
-            err instanceof Error
-              ? err.message
-              : "Something went wrong. Please try again.";
-          return { error: message };
+          return { error: friendlyAuthError(err) };
         }
       },
       async cancelEmailOtpChallenge() {

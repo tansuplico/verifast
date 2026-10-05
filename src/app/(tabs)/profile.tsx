@@ -9,7 +9,6 @@ import {
   getCachedProfile,
   getCachedSubscription,
 } from "@/lib/offline-db";
-import { hasProAccess } from "@/lib/subscription";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -171,11 +170,6 @@ export default function ProfileScreen() {
     .join(" • ");
   const plan = subscriptionCopy(subscription);
 
-  const isPro = hasProAccess(
-    subscription?.status,
-    subscription?.current_period_end,
-  );
-
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <ScrollView
@@ -282,26 +276,7 @@ export default function ProfileScreen() {
               ACCOUNT
             </ThemedText>
 
-            <Pressable
-              onPress={() => {
-                if (!isPro) {
-                  showAlert(
-                    "Backup and Recovery is a Pro feature",
-                    "Upgrade to VeriFast Pro to export and share your documents.",
-                    [
-                      { text: "Not Now", style: "cancel" },
-                      {
-                        text: "Upgrade",
-                        onPress: () => router.push("/subscription"),
-                      },
-                    ],
-                    { tone: "info", icon: "sparkles-outline" },
-                  );
-                  return;
-                }
-                router.push("/backup-recovery");
-              }}
-            >
+            <Pressable onPress={() => router.push("/backup-recovery")}>
               <View style={styles.linkRow}>
                 <Ionicons
                   name="cloud-upload-outline"
@@ -311,13 +286,6 @@ export default function ProfileScreen() {
                 <ThemedText type="smallBold" style={styles.linkRowText}>
                   Backup and Recovery
                 </ThemedText>
-                {!isPro && (
-                  <View style={styles.proBadge}>
-                    <ThemedText type="small" style={styles.proBadgeText}>
-                      PRO
-                    </ThemedText>
-                  </View>
-                )}
                 <Ionicons name="chevron-forward" size={16} color="#c4c8d1" />
               </View>
             </Pressable>
@@ -445,12 +413,4 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
   },
   logoutText: { color: "#dc2626" },
-  proBadge: {
-    backgroundColor: "#e0f5f1",
-    borderRadius: 999,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 2,
-    marginRight: Spacing.two,
-  },
-  proBadgeText: { color: "#0d9488", fontWeight: "700", fontSize: 10 },
 });

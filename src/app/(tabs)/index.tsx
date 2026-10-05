@@ -346,8 +346,8 @@ export default function HomeScreen() {
                     documentsCount >= FREE_DOCUMENT_LIMIT
                       ? `You have ${documentsCount} documents. After the trial you won't be able to add more until you upgrade.`
                       : planWarning.kind === "trial"
-                        ? "Upgrade to keep unlimited storage and Backup & Recovery."
-                        : "Pay again to keep unlimited storage and Backup & Recovery."}
+                        ? "Upgrade to keep unlimited document storage."
+                        : "Pay again to keep unlimited document storage."}
                   </ThemedText>
                   <Pressable onPress={() => router.push("/subscription")}>
                     <ThemedText type="smallBold" style={styles.planWarningLink}>

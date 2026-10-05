@@ -35,7 +35,6 @@ const INCLUDED_FEATURES = [
   "Expiry and submission alerts",
   "Academic info and announcements",
   "Push and email notifications",
-  "Document backup and recovery",
   "Priority support",
 ];
 

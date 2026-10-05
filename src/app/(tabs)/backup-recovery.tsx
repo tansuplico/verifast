@@ -15,7 +15,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 import { clearExportedFiles, getExportsDir } from "@/lib/export-files";
-import { hasProAccess } from "@/lib/subscription";
 import { supabase } from "@/lib/supabase";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
@@ -28,13 +27,6 @@ type DocumentRow = {
   file_size: number | null;
   created_at: string;
 };
-
-type SubscriptionStatus =
-  | "trialing"
-  | "active"
-  | "past_due"
-  | "canceled"
-  | "expired";
 
 function formatFileSize(bytes: number | null): string {
   if (!bytes) return "";
@@ -56,32 +48,16 @@ export default function BackupRecoveryScreen() {
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [exportingId, setExportingId] = useState<string | null>(null);
-  const [subscriptionStatus, setSubscriptionStatus] =
-    useState<SubscriptionStatus | null>(null);
-  const [subscriptionPeriodEnd, setSubscriptionPeriodEnd] = useState<
-    string | null
-  >(null);
 
   const loadDocuments = useCallback(async () => {
     if (!session) return;
     setIsLoading(true);
-    const [documentsResult, subscriptionResult] = await Promise.all([
-      supabase
-        .from("documents")
-        .select("id, name, file_path, mime_type, file_size, created_at")
-        .eq("user_id", session.user.id)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("subscriptions")
-        .select("status, current_period_end")
-        .eq("user_id", session.user.id)
-        .single(),
-    ]);
-    setDocuments(documentsResult.data ?? []);
-    setSubscriptionStatus(subscriptionResult.data?.status ?? null);
-    setSubscriptionPeriodEnd(
-      subscriptionResult.data?.current_period_end ?? null,
-    );
+    const { data } = await supabase
+      .from("documents")
+      .select("id, name, file_path, mime_type, file_size, created_at")
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: false });
+    setDocuments(data ?? []);
     setIsLoading(false);
   }, [session]);
 
@@ -144,8 +120,6 @@ export default function BackupRecoveryScreen() {
     }
   }
 
-  const isPro = hasProAccess(subscriptionStatus, subscriptionPeriodEnd);
-
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
@@ -178,26 +152,6 @@ export default function BackupRecoveryScreen() {
             color="#0d9488"
             style={{ marginVertical: Spacing.four }}
           />
-        ) : !isPro ? (
-          <View style={[styles.card, styles.lockedCard]}>
-            <View style={styles.summaryIcon}>
-              <Ionicons name="lock-closed-outline" size={22} color="#0d9488" />
-            </View>
-            <ThemedText type="smallBold" style={styles.summaryTitle}>
-              Backup and Recovery is a Pro feature
-            </ThemedText>
-            <ThemedText type="small" style={styles.summarySubtext}>
-              Upgrade to VeriFast Pro to export and share your documents.
-            </ThemedText>
-            <Pressable
-              style={styles.upgradeButton}
-              onPress={() => router.push("/subscription")}
-            >
-              <ThemedText type="smallBold" style={styles.upgradeButtonText}>
-                Upgrade to Pro
-              </ThemedText>
-            </Pressable>
-          </View>
         ) : (
           <>
             <View style={styles.summaryCard}>
@@ -361,21 +315,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  lockedCard: {
-    flexDirection: "column",
-    alignItems: "center",
-    textAlign: "center",
-    paddingVertical: Spacing.six ?? Spacing.four * 1.5,
-    gap: Spacing.two,
-  },
-  upgradeButton: {
-    backgroundColor: "#0d9488",
-    borderRadius: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: Spacing.two,
-  },
-  upgradeButtonText: { color: "#ffffff" },
 });

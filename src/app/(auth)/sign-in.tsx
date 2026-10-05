@@ -19,7 +19,7 @@ import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
 
 export default function SignInScreen() {
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signIn, signInWithGoogle, resendSignUpCode } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,7 +31,22 @@ export default function SignInScreen() {
       return;
     }
     setIsSubmitting(true);
-    const { error } = await signIn(email.trim(), password);
+    const { error, needsEmailConfirmation } = await signIn(
+      email.trim(),
+      password,
+    );
+    if (needsEmailConfirmation) {
+      // Never finished sign-up: send a fresh code (if one went out in the
+      // last minute Supabase refuses a second - the earlier code still
+      // works, so that error is ignored) and continue on the code screen.
+      await resendSignUpCode(email.trim());
+      setIsSubmitting(false);
+      router.push({
+        pathname: "/verify-email",
+        params: { email: email.trim() },
+      });
+      return;
+    }
     setIsSubmitting(false);
     if (error) {
       showAlert("Sign in failed", error, undefined, { tone: "danger" });

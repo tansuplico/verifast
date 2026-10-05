@@ -56,12 +56,10 @@ export default function SignUpScreen() {
     }
 
     if (needsEmailConfirmation) {
-      showAlert(
-        "Check your email",
-        "We've sent a confirmation link. Verify your email, then sign in.",
-        [{ text: "OK", onPress: () => router.replace("/sign-in") }],
-        { tone: "info", icon: "mail-outline" },
-      );
+      router.replace({
+        pathname: "/verify-email",
+        params: { email: email.trim() },
+      });
       return;
     }
     // If email confirmation is off, signUp returns an active session and

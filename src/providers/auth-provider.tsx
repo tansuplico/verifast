@@ -28,12 +28,17 @@ type AuthContextValue = {
   signIn: (
     email: string,
     password: string,
-  ) => Promise<{ error: string | null }>;
+  ) => Promise<{ error: string | null; needsEmailConfirmation?: boolean }>;
   signUp: (
     fullName: string,
     email: string,
     password: string,
   ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>;
+  verifySignUpCode: (
+    email: string,
+    code: string,
+  ) => Promise<{ error: string | null }>;
+  resendSignUpCode: (email: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<{ error: string | null }>;
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
@@ -190,7 +195,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           password,
         });
         if (error) {
-          return { error: error.message };
+          // Signed up but never entered the emailed code - the screen sends
+          // them to the code step instead of showing a dead-end error.
+          return {
+            error: error.message,
+            needsEmailConfirmation: error.code === "email_not_confirmed",
+          };
         }
         await maybeStartEmailOtpChallenge(data.user);
         return { error: null };
@@ -205,6 +215,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           error: error?.message ?? null,
           needsEmailConfirmation: !error && !data.session,
         };
+      },
+      async verifySignUpCode(email, code) {
+        // "email" is the current type for confirming a sign-up code
+        // ("signup" is deprecated). Success returns a real session, so the
+        // root layout's guard moves the user into the app on its own - no
+        // separate sign-in needed, and no 2FA challenge (it's off for a
+        // brand-new account, and they just proved they own the inbox).
+        const { error } = await supabase.auth.verifyOtp({
+          email,
+          token: code,
+          type: "email",
+        });
+        return { error: error?.message ?? null };
+      },
+      async resendSignUpCode(email) {
+        const { error } = await supabase.auth.resend({
+          type: "signup",
+          email,
+        });
+        return { error: error?.message ?? null };
       },
       async signOut() {
         // Clear this device's trust for the current user before signing

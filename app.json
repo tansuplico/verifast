@@ -18,8 +18,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false,
-      "permissions": ["android.permission.RECORD_AUDIO"]
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
@@ -39,7 +38,8 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow VeriFast to access your photos to upload documents.",
-          "cameraPermission": "Allow VeriFast to access your camera to take photos of documents."
+          "cameraPermission": "Allow VeriFast to access your camera to take photos of documents.",
+          "microphonePermission": false
         }
       ],
       [

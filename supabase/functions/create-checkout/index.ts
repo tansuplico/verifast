@@ -51,7 +51,13 @@ Deno.serve(async (req) => {
               success_url: `${SUPABASE_URL}/functions/v1/checkout-redirect?result=success`,
               cancel_url: `${SUPABASE_URL}/functions/v1/checkout-redirect?result=cancel`,
               reference_number: user.id,
+              // The receipt goes to billing.email (or whatever the customer
+              // types on the checkout page), so pre-fill it from their
+              // account - otherwise a customer who skips the field gets no
+              // receipt. Still editable on the checkout page. Omitted (not
+              // null) when the account somehow has no email.
               send_email_receipt: true,
+              billing: user.email ? { email: user.email } : undefined,
               metadata: { user_id: user.id },
             },
           },

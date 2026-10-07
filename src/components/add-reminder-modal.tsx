@@ -1,13 +1,7 @@
 import DateTimePicker from "@expo/ui/community/datetime-picker";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useRef, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
@@ -311,123 +305,117 @@ export function AddReminderModal({
 
   return (
     <BottomSheet visible={visible} onClose={handleClose}>
-      <KeyboardAvoidingView behavior="padding">
-        <View style={styles.headerRow}>
-          <ThemedText type="title" style={styles.title}>
-            {editingReminder ? "Edit Reminder" : "Add Reminder"}
-          </ThemedText>
-          <Pressable
-            onPress={handleClose}
-            style={styles.closeButton}
-            hitSlop={8}
-          >
-            <Ionicons name="close" size={18} color="#60646C" />
-          </Pressable>
-        </View>
+      <View style={styles.headerRow}>
+        <ThemedText type="title" style={styles.title}>
+          {editingReminder ? "Edit Reminder" : "Add Reminder"}
+        </ThemedText>
+        <Pressable onPress={handleClose} style={styles.closeButton} hitSlop={8}>
+          <Ionicons name="close" size={18} color="#60646C" />
+        </Pressable>
+      </View>
 
-        <ThemedText type="small" style={styles.fieldLabel}>
-          Title
-        </ThemedText>
-        <TextInput
-          value={title}
-          onChangeText={setTitle}
-          placeholder="e.g. Submit Good Moral Certificate"
-          placeholderTextColor="#8b8f99"
-          style={styles.textInput}
-          maxLength={TITLE_MAX_LENGTH}
-        />
-        <ThemedText type="small" style={styles.charCount}>
-          {title.length}/{TITLE_MAX_LENGTH}
-        </ThemedText>
+      <ThemedText type="small" style={styles.fieldLabel}>
+        Title
+      </ThemedText>
+      <TextInput
+        value={title}
+        onChangeText={setTitle}
+        placeholder="e.g. Submit Good Moral Certificate"
+        placeholderTextColor="#8b8f99"
+        style={styles.textInput}
+        maxLength={TITLE_MAX_LENGTH}
+      />
+      <ThemedText type="small" style={styles.charCount}>
+        {title.length}/{TITLE_MAX_LENGTH}
+      </ThemedText>
 
-        <ThemedText type="small" style={styles.fieldLabel}>
-          Category
-        </ThemedText>
-        <View style={styles.chipRow}>
-          {CATEGORY_OPTIONS.map((option) => {
-            const style = CATEGORY_STYLE[option];
-            const isSelected = category === option;
-            return (
-              <Pressable
-                key={option}
-                onPress={() => setCategory(option)}
+      <ThemedText type="small" style={styles.fieldLabel}>
+        Category
+      </ThemedText>
+      <View style={styles.chipRow}>
+        {CATEGORY_OPTIONS.map((option) => {
+          const style = CATEGORY_STYLE[option];
+          const isSelected = category === option;
+          return (
+            <Pressable
+              key={option}
+              onPress={() => setCategory(option)}
+              style={[
+                styles.chip,
+                {
+                  backgroundColor: isSelected
+                    ? style.color
+                    : `${style.color}1A`,
+                },
+              ]}
+            >
+              <Ionicons
+                name={style.icon}
+                size={13}
+                color={isSelected ? "#ffffff" : style.color}
+              />
+              <ThemedText
+                type="small"
                 style={[
-                  styles.chip,
-                  {
-                    backgroundColor: isSelected
-                      ? style.color
-                      : `${style.color}1A`,
-                  },
+                  styles.chipLabel,
+                  { color: isSelected ? "#ffffff" : style.color },
                 ]}
               >
-                <Ionicons
-                  name={style.icon}
-                  size={13}
-                  color={isSelected ? "#ffffff" : style.color}
-                />
-                <ThemedText
-                  type="small"
-                  style={[
-                    styles.chipLabel,
-                    { color: isSelected ? "#ffffff" : style.color },
-                  ]}
-                >
-                  {style.label}
-                </ThemedText>
-              </Pressable>
-            );
-          })}
-        </View>
+                {style.label}
+              </ThemedText>
+            </Pressable>
+          );
+        })}
+      </View>
 
-        <ThemedText type="small" style={styles.fieldLabel}>
-          Due Date
+      <ThemedText type="small" style={styles.fieldLabel}>
+        Due Date
+      </ThemedText>
+      <Pressable onPress={() => setShowPicker(true)} style={styles.dateInput}>
+        <ThemedText type="default" style={styles.dateInputText}>
+          {formatDateForDisplay(dueDate)}
         </ThemedText>
-        <Pressable onPress={() => setShowPicker(true)} style={styles.dateInput}>
-          <ThemedText type="default" style={styles.dateInputText}>
-            {formatDateForDisplay(dueDate)}
-          </ThemedText>
-          <Ionicons name="calendar-outline" size={18} color="#8b8f99" />
-        </Pressable>
+        <Ionicons name="calendar-outline" size={18} color="#8b8f99" />
+      </Pressable>
 
-        {/* iOS ignores `presentation` and always renders inline, so this
+      {/* iOS ignores `presentation` and always renders inline, so this
               only needs conditional mounting to give Android its dialog
               behavior; on iOS this expands the sheet in place when tapped. */}
-        {showPicker && (
-          <DateTimePicker
-            value={dueDate}
-            mode="date"
-            minimumDate={new Date()}
-            presentation="dialog"
-            onValueChange={(_event, selectedDate) => {
-              setShowPicker(false);
-              if (selectedDate) setDueDate(selectedDate);
-            }}
-            onDismiss={() => setShowPicker(false)}
-          />
-        )}
+      {showPicker && (
+        <DateTimePicker
+          value={dueDate}
+          mode="date"
+          minimumDate={new Date()}
+          presentation="dialog"
+          onValueChange={(_event, selectedDate) => {
+            setShowPicker(false);
+            if (selectedDate) setDueDate(selectedDate);
+          }}
+          onDismiss={() => setShowPicker(false)}
+        />
+      )}
 
+      <Pressable
+        onPress={handleSave}
+        disabled={!canSubmit}
+        style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
+      >
+        <ThemedText type="smallBold" style={styles.saveButtonText}>
+          {isSaving ? "Saving..." : "Save Reminder"}
+        </ThemedText>
+      </Pressable>
+
+      {editingReminder && (
         <Pressable
-          onPress={handleSave}
-          disabled={!canSubmit}
-          style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
+          onPress={handleDelete}
+          disabled={isSaving}
+          style={styles.deleteButton}
         >
-          <ThemedText type="smallBold" style={styles.saveButtonText}>
-            {isSaving ? "Saving..." : "Save Reminder"}
+          <ThemedText type="smallBold" style={styles.deleteButtonText}>
+            Delete Reminder
           </ThemedText>
         </Pressable>
-
-        {editingReminder && (
-          <Pressable
-            onPress={handleDelete}
-            disabled={isSaving}
-            style={styles.deleteButton}
-          >
-            <ThemedText type="smallBold" style={styles.deleteButtonText}>
-              Delete Reminder
-            </ThemedText>
-          </Pressable>
-        )}
-      </KeyboardAvoidingView>
+      )}
     </BottomSheet>
   );
 }

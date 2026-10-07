@@ -1,12 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useRef, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
@@ -155,119 +149,113 @@ export function AddAcademicInfoModal({
 
   return (
     <BottomSheet visible={visible} onClose={handleClose}>
-      <KeyboardAvoidingView behavior="padding">
-        <View style={styles.headerRow}>
-          <ThemedText type="title" style={styles.title}>
-            {editingItem ? "Edit Entry" : "Add Academic Info"}
-          </ThemedText>
-          <Pressable
-            onPress={handleClose}
-            style={styles.closeButton}
-            hitSlop={8}
-          >
-            <Ionicons name="close" size={18} color="#60646C" />
-          </Pressable>
-        </View>
+      <View style={styles.headerRow}>
+        <ThemedText type="title" style={styles.title}>
+          {editingItem ? "Edit Entry" : "Add Academic Info"}
+        </ThemedText>
+        <Pressable onPress={handleClose} style={styles.closeButton} hitSlop={8}>
+          <Ionicons name="close" size={18} color="#60646C" />
+        </Pressable>
+      </View>
 
-        <ThemedText type="small" style={styles.fieldLabel}>
-          Title
-        </ThemedText>
-        <TextInput
-          value={title}
-          onChangeText={setTitle}
-          placeholder="e.g. New GE Elective Added"
-          placeholderTextColor="#8b8f99"
-          style={styles.textInput}
-          maxLength={TITLE_MAX_LENGTH}
-        />
-        <ThemedText type="small" style={styles.charCount}>
-          {title.length}/{TITLE_MAX_LENGTH}
-        </ThemedText>
+      <ThemedText type="small" style={styles.fieldLabel}>
+        Title
+      </ThemedText>
+      <TextInput
+        value={title}
+        onChangeText={setTitle}
+        placeholder="e.g. New GE Elective Added"
+        placeholderTextColor="#8b8f99"
+        style={styles.textInput}
+        maxLength={TITLE_MAX_LENGTH}
+      />
+      <ThemedText type="small" style={styles.charCount}>
+        {title.length}/{TITLE_MAX_LENGTH}
+      </ThemedText>
 
-        <ThemedText type="small" style={styles.fieldLabel}>
-          Category
-        </ThemedText>
-        <View style={styles.chipRow}>
-          {CATEGORY_OPTIONS.map((option) => {
-            const style = CATEGORY_STYLE[option];
-            const isSelected = category === option;
-            return (
-              <Pressable
-                key={option}
-                onPress={() => setCategory(option)}
+      <ThemedText type="small" style={styles.fieldLabel}>
+        Category
+      </ThemedText>
+      <View style={styles.chipRow}>
+        {CATEGORY_OPTIONS.map((option) => {
+          const style = CATEGORY_STYLE[option];
+          const isSelected = category === option;
+          return (
+            <Pressable
+              key={option}
+              onPress={() => setCategory(option)}
+              style={[
+                styles.chip,
+                {
+                  backgroundColor: isSelected
+                    ? style.color
+                    : `${style.color}1A`,
+                },
+              ]}
+            >
+              <Ionicons
+                name={style.icon}
+                size={13}
+                color={isSelected ? "#ffffff" : style.color}
+              />
+              <ThemedText
+                type="small"
                 style={[
-                  styles.chip,
-                  {
-                    backgroundColor: isSelected
-                      ? style.color
-                      : `${style.color}1A`,
-                  },
+                  styles.chipLabel,
+                  { color: isSelected ? "#ffffff" : style.color },
                 ]}
               >
-                <Ionicons
-                  name={style.icon}
-                  size={13}
-                  color={isSelected ? "#ffffff" : style.color}
-                />
-                <ThemedText
-                  type="small"
-                  style={[
-                    styles.chipLabel,
-                    { color: isSelected ? "#ffffff" : style.color },
-                  ]}
-                >
-                  {style.label}
-                </ThemedText>
-              </Pressable>
-            );
-          })}
-        </View>
+                {style.label}
+              </ThemedText>
+            </Pressable>
+          );
+        })}
+      </View>
 
-        <ThemedText type="small" style={styles.fieldLabel}>
-          Notes
-        </ThemedText>
-        <TextInput
-          value={content}
-          onChangeText={setContent}
-          placeholder="Add any details you want to remember"
-          placeholderTextColor="#8b8f99"
-          style={[styles.textInput, styles.multilineInput]}
-          multiline
-          maxLength={NOTES_MAX_LENGTH}
+      <ThemedText type="small" style={styles.fieldLabel}>
+        Notes
+      </ThemedText>
+      <TextInput
+        value={content}
+        onChangeText={setContent}
+        placeholder="Add any details you want to remember"
+        placeholderTextColor="#8b8f99"
+        style={[styles.textInput, styles.multilineInput]}
+        multiline
+        maxLength={NOTES_MAX_LENGTH}
+      />
+      <ThemedText type="small" style={styles.charCount}>
+        {content.length}/{NOTES_MAX_LENGTH}
+      </ThemedText>
+
+      <Pressable onPress={() => setIsPinned((v) => !v)} style={styles.pinRow}>
+        <Ionicons
+          name={isPinned ? "bookmark" : "bookmark-outline"}
+          size={18}
+          color="#0d9488"
         />
-        <ThemedText type="small" style={styles.charCount}>
-          {content.length}/{NOTES_MAX_LENGTH}
+        <ThemedText type="small" style={styles.pinLabel}>
+          Pin to top
         </ThemedText>
+      </Pressable>
 
-        <Pressable onPress={() => setIsPinned((v) => !v)} style={styles.pinRow}>
-          <Ionicons
-            name={isPinned ? "bookmark" : "bookmark-outline"}
-            size={18}
-            color="#0d9488"
-          />
-          <ThemedText type="small" style={styles.pinLabel}>
-            Pin to top
+      <Pressable
+        onPress={handleSave}
+        disabled={!canSubmit}
+        style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
+      >
+        <ThemedText type="smallBold" style={styles.saveButtonText}>
+          Save
+        </ThemedText>
+      </Pressable>
+
+      {editingItem && (
+        <Pressable onPress={handleDelete} style={styles.deleteButton}>
+          <ThemedText type="smallBold" style={styles.deleteButtonText}>
+            Delete Entry
           </ThemedText>
         </Pressable>
-
-        <Pressable
-          onPress={handleSave}
-          disabled={!canSubmit}
-          style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
-        >
-          <ThemedText type="smallBold" style={styles.saveButtonText}>
-            Save
-          </ThemedText>
-        </Pressable>
-
-        {editingItem && (
-          <Pressable onPress={handleDelete} style={styles.deleteButton}>
-            <ThemedText type="smallBold" style={styles.deleteButtonText}>
-              Delete Entry
-            </ThemedText>
-          </Pressable>
-        )}
-      </KeyboardAvoidingView>
+      )}
     </BottomSheet>
   );
 }

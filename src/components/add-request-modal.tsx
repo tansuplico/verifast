@@ -1,12 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRef, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { BottomSheet } from "@/components/bottom-sheet";
 import { ThemedText } from "@/components/themed-text";
@@ -88,58 +82,52 @@ export function AddRequestModal({
 
   return (
     <BottomSheet visible={visible} onClose={handleClose}>
-      <KeyboardAvoidingView behavior="padding">
-        <View style={styles.headerRow}>
-          <ThemedText type="title" style={styles.title}>
-            Log a Request
-          </ThemedText>
-          <Pressable
-            onPress={handleClose}
-            style={styles.closeButton}
-            hitSlop={8}
-          >
-            <Ionicons name="close" size={18} color="#60646C" />
-          </Pressable>
-        </View>
-
-        <ThemedText type="small" style={styles.fieldLabel}>
-          Document Type
+      <View style={styles.headerRow}>
+        <ThemedText type="title" style={styles.title}>
+          Log a Request
         </ThemedText>
-        <TextInput
-          value={documentType}
-          onChangeText={setDocumentType}
-          placeholder="e.g. Transcript of Records"
-          placeholderTextColor="#8b8f99"
-          style={styles.textInput}
-          maxLength={DOCUMENT_TYPE_MAX_LENGTH}
-        />
-        <ThemedText type="small" style={styles.charCount}>
-          {documentType.length}/{DOCUMENT_TYPE_MAX_LENGTH}
-        </ThemedText>
-        <ThemedText type="small" style={styles.fieldLabel}>
-          Office (optional)
-        </ThemedText>
-        <TextInput
-          value={office}
-          onChangeText={setOffice}
-          placeholder="e.g. Registrar's Office"
-          placeholderTextColor="#8b8f99"
-          style={styles.textInput}
-          maxLength={OFFICE_MAX_LENGTH}
-        />
-        <ThemedText type="small" style={styles.charCount}>
-          {office.length}/{OFFICE_MAX_LENGTH}
-        </ThemedText>
-        <Pressable
-          onPress={handleSave}
-          disabled={!canSubmit}
-          style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
-        >
-          <ThemedText type="smallBold" style={styles.saveButtonText}>
-            Save Request
-          </ThemedText>
+        <Pressable onPress={handleClose} style={styles.closeButton} hitSlop={8}>
+          <Ionicons name="close" size={18} color="#60646C" />
         </Pressable>
-      </KeyboardAvoidingView>
+      </View>
+
+      <ThemedText type="small" style={styles.fieldLabel}>
+        Document Type
+      </ThemedText>
+      <TextInput
+        value={documentType}
+        onChangeText={setDocumentType}
+        placeholder="e.g. Transcript of Records"
+        placeholderTextColor="#8b8f99"
+        style={styles.textInput}
+        maxLength={DOCUMENT_TYPE_MAX_LENGTH}
+      />
+      <ThemedText type="small" style={styles.charCount}>
+        {documentType.length}/{DOCUMENT_TYPE_MAX_LENGTH}
+      </ThemedText>
+      <ThemedText type="small" style={styles.fieldLabel}>
+        Office (optional)
+      </ThemedText>
+      <TextInput
+        value={office}
+        onChangeText={setOffice}
+        placeholder="e.g. Registrar's Office"
+        placeholderTextColor="#8b8f99"
+        style={styles.textInput}
+        maxLength={OFFICE_MAX_LENGTH}
+      />
+      <ThemedText type="small" style={styles.charCount}>
+        {office.length}/{OFFICE_MAX_LENGTH}
+      </ThemedText>
+      <Pressable
+        onPress={handleSave}
+        disabled={!canSubmit}
+        style={[styles.saveButton, !canSubmit && styles.buttonDisabled]}
+      >
+        <ThemedText type="smallBold" style={styles.saveButtonText}>
+          Save Request
+        </ThemedText>
+      </Pressable>
     </BottomSheet>
   );
 }

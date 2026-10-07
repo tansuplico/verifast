@@ -1,6 +1,13 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Dimensions, Modal, Pressable, StyleSheet, View } from "react-native";
+import {
+  Dimensions,
+  KeyboardAvoidingView,
+  Modal,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -80,9 +87,16 @@ export function BottomSheet({
       visible={!suspended}
       transparent
       animationType="none"
+      // Edge-to-edge: without these, Android measures the keyboard against a
+      // window that doesn't match the screen and the sheet isn't lifted.
+      statusBarTranslucent
+      navigationBarTranslucent
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
+      {/* The KeyboardAvoidingView must be the full-window root: it works
+          out how far to lift from its own layout position, so nesting it
+          inside the animated sheet made that always come out as zero. */}
+      <KeyboardAvoidingView behavior="padding" style={styles.container}>
         <Animated.View style={[styles.backdrop, backdropStyle]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
@@ -93,7 +107,7 @@ export function BottomSheet({
             {children}
           </SafeAreaView>
         </Animated.View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

@@ -33,6 +33,7 @@ import {
 import { requestSync, subscribeToSync, syncRequests } from "@/lib/sync";
 import { showAlert } from "@/providers/alert-provider";
 import { useAuth } from "@/providers/auth-provider";
+import { useToast } from "@/providers/toast-provider";
 
 type RequestRow = {
   id: string;
@@ -79,6 +80,7 @@ function RequestSkeletonRow({ isLast }: { isLast: boolean }) {
 export default function RequestedDocsScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  const { showSavedToast } = useToast();
   const isOnline = useIsOnline();
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -162,12 +164,13 @@ export default function RequestedDocsScreen() {
               }
               requestSync(session.user.id);
               reloadFromLocal();
+              showSavedToast(`Marked as ${STATUS_STYLE[nextStatus].label}`);
             },
           },
         ],
       );
     },
-    [session, reloadFromLocal],
+    [session, reloadFromLocal, showSavedToast],
   );
 
   const handleDelete = useCallback(
@@ -197,13 +200,14 @@ export default function RequestedDocsScreen() {
               }
               requestSync(session.user.id);
               reloadFromLocal();
+              showSavedToast("Request deleted");
             },
           },
         ],
         { icon: "trash-outline" },
       );
     },
-    [session, reloadFromLocal],
+    [session, reloadFromLocal, showSavedToast],
   );
 
   const readyCount = requests.filter((r) => r.status === "ready").length;

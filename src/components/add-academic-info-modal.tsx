@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   TextInput,
@@ -156,9 +155,7 @@ export function AddAcademicInfoModal({
 
   return (
     <BottomSheet visible={visible} onClose={handleClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoidingView behavior="padding">
         <View style={styles.headerRow}>
           <ThemedText type="title" style={styles.title}>
             {editingItem ? "Edit Entry" : "Add Academic Info"}

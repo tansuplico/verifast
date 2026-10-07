@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   TextInput,
@@ -15,6 +14,7 @@ import { Spacing } from "@/constants/theme";
 import { createRequestLocal } from "@/lib/offline-db";
 import { requestSync } from "@/lib/sync";
 import { showAlert } from "@/providers/alert-provider";
+import { useToast } from "@/providers/toast-provider";
 
 const DOCUMENT_TYPE_MAX_LENGTH = 60;
 const OFFICE_MAX_LENGTH = 80;
@@ -32,6 +32,7 @@ export function AddRequestModal({
   userId,
   onCreated,
 }: AddRequestModalProps) {
+  const { showSavedToast } = useToast();
   const [documentType, setDocumentType] = useState("");
   const [office, setOffice] = useState("");
   // Saving is a local write now (instant, works offline), so there is no
@@ -78,15 +79,16 @@ export function AddRequestModal({
     reset();
     onCreated();
     onClose();
+    // Wait for the sheet to finish closing: a toast can't show above an
+    // open Modal.
+    setTimeout(() => showSavedToast("Request added"), 260);
   }
 
   const canSubmit = documentType.trim().length > 0;
 
   return (
     <BottomSheet visible={visible} onClose={handleClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoidingView behavior="padding">
         <View style={styles.headerRow}>
           <ThemedText type="title" style={styles.title}>
             Log a Request

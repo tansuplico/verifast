@@ -4,7 +4,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   TextInput,
@@ -81,10 +80,7 @@ export function DeleteAccountModal({
       statusBarTranslucent
       onRequestClose={handleClose}
     >
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoidingView style={styles.container} behavior="padding">
         <Pressable style={styles.backdrop} onPress={handleClose} />
         <View style={styles.card}>
           <View style={styles.badge}>

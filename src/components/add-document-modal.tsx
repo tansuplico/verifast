@@ -17,7 +17,6 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   TextInput,
@@ -308,9 +307,7 @@ export function AddDocumentModal({
       onClose={handleClose}
       suspended={isPickerActive}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoidingView behavior="padding">
         <View style={styles.headerRow}>
           <ThemedText type="title" style={styles.title}>
             Add Document

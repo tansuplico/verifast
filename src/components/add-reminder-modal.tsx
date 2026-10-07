@@ -3,7 +3,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   TextInput,
@@ -300,6 +299,7 @@ export function AddReminderModal({
             requestSync(userId);
             onSaved();
             onClose();
+            setTimeout(() => showSavedToast("Reminder deleted"), 260);
           },
         },
       ],
@@ -311,9 +311,7 @@ export function AddReminderModal({
 
   return (
     <BottomSheet visible={visible} onClose={handleClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoidingView behavior="padding">
         <View style={styles.headerRow}>
           <ThemedText type="title" style={styles.title}>
             {editingReminder ? "Edit Reminder" : "Add Reminder"}
